@@ -443,28 +443,37 @@ if analyse_clicked and uploaded_file is not None:
         with st.spinner("Analysing thermal image..."):
             result = process_image(image_path)
     from datetime import datetime
-
+    
+    if "CRITICAL" in status:
+        val_class = "val-red"
+        attend_msg = "To be attended in 1 day"
+    
+    elif "WARNING" in status:
+        val_class = "val-yellow"
+        attend_msg = "To be attended in 10 days"
+    
+    elif "MONITOR" in status:
+        val_class = "val-yellow"
+        attend_msg = "To be attended in 30 days"
+    
+    else:
+        val_class = "val-green"
+        attend_msg = "Normal — No fault detected"
+    
+    
     save_report({
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    
         "image_name": uploaded_file.name,
-    
         "capture_date": extracted_date,
         "capture_time": extracted_time,
-    
         "section": station["section"] if station else "",
         "ohe_mast": station["ohe_mast"] if station else "",
-    
-        "scale_max": float(result["scale_t_max"]),
-        "scale_min": float(result["scale_t_min"]),
-    
-        "wire_max": float(result["max_temp"]),
-        "wire_min": float(result["min_temp"]),
-    
-        "delta_t": float(result["delta"]),
-    
+        "scale_max": result["scale_t_max"],
+        "scale_min": result["scale_t_min"],
+        "wire_max": result["max_temp"],
+        "wire_min": result["min_temp"],
+        "delta_t": result["delta"],
         "status": result["status"],
-    
         "attend_in": attend_msg
     })
 # # =====================================
