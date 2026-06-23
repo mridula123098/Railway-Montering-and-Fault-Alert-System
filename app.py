@@ -20,7 +20,7 @@ import base64
 import pandas as pd
 from datetime import datetime
 from thermal_logic import process_image, get_station_from_filename
-from database import save_report
+# from database import save_report
 # ═══════════════════════════════════════════════════════════════════
 # PAGE CONFIG
 # ═══════════════════════════════════════════════════════════════════
@@ -526,31 +526,31 @@ if analyse_clicked and uploaded_file is not None:
     # =====================================
     # SAVE TO DATABASE
     # =====================================
-    try:
+    # try:
        
-        if station:
+    #     if station:
 
-            save_report(
-                image_name=uploaded_file.name,
+    #         save_report(
+    #             image_name=uploaded_file.name,
 
-                section=station["section"],
-                ohe_mast=station["ohe_mast"],
+    #             section=station["section"],
+    #             ohe_mast=station["ohe_mast"],
 
-                scale_max=result["scale_t_max"],
-                scale_min=result["scale_t_min"],
+    #             scale_max=result["scale_t_max"],
+    #             scale_min=result["scale_t_min"],
 
-                wire_max=result["max_temp"],
-                wire_min=result["min_temp"],
+    #             wire_max=result["max_temp"],
+    #             wire_min=result["min_temp"],
 
-                delta_t=result["delta"],
-                status=result["status"]
-            )
+    #             delta_t=result["delta"],
+    #             status=result["status"]
+    #         )
 
-    except Exception as e:
-        print("Database Save Error:", e)
+    # except Exception as e:
+    #     print("Database Save Error:", e)
 
     # delete temp image
-    os.unlink(image_path)
+    # os.unlink(image_path)
 
     if result["max_temp"] is None:
 
