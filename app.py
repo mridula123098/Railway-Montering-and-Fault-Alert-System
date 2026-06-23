@@ -25,6 +25,10 @@ from thermal_logic import process_image, get_station_from_filename
 # PAGE CONFIG
 # ═══════════════════════════════════════════════════════════════════
 
+import streamlit as st
+
+st.write(st.secrets["SUPABASE_URL"])
+
 st.set_page_config(
     page_title="KRC Thermal Fault Detection",
     layout="wide",
