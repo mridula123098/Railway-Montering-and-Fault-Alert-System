@@ -461,7 +461,7 @@ if analyse_clicked and uploaded_file is not None:
     else:
         val_class = "val-green"
         attend_msg = "Normal — No fault detected"
-    
+    st.write("Station object:", station)
     save_report({
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "image_name": uploaded_file.name,
