@@ -24,11 +24,6 @@ from database import save_report
 # ═══════════════════════════════════════════════════════════════════
 # PAGE CONFIG
 # ═══════════════════════════════════════════════════════════════════
-
-import streamlit as st
-
-st.write(st.secrets["SUPABASE_URL"])
-
 st.set_page_config(
     page_title="KRC Thermal Fault Detection",
     layout="wide",
