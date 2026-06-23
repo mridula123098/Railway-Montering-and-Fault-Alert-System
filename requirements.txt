@@ -6,4 +6,4 @@ pillow
 pandas
 openpyxl
 psycopg2-binary
-
+supabase
