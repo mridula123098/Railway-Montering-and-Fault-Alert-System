@@ -443,7 +443,7 @@ if analyse_clicked and uploaded_file is not None:
         with st.spinner("Analysing thermal image..."):
             result = process_image(image_path)
             
-    status = result["alert"]   # or result["status"] depending on thermal_logic.py
+    status = result["status"]   # or result["status"] depending on thermal_logic.py
     from datetime import datetime
     
     if "CRITICAL" in status:
