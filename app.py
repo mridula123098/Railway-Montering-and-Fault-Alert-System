@@ -442,6 +442,8 @@ if analyse_clicked and uploaded_file is not None:
     with center:
         with st.spinner("Analysing thermal image..."):
             result = process_image(image_path)
+            
+    status = result["alert"]   # or result["status"] depending on thermal_logic.py
     from datetime import datetime
     
     if "CRITICAL" in status:
@@ -460,7 +462,6 @@ if analyse_clicked and uploaded_file is not None:
         val_class = "val-green"
         attend_msg = "Normal — No fault detected"
     
-    
     save_report({
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "image_name": uploaded_file.name,
@@ -473,7 +474,7 @@ if analyse_clicked and uploaded_file is not None:
         "wire_max": result["max_temp"],
         "wire_min": result["min_temp"],
         "delta_t": result["delta"],
-        "status": result["status"],
+        "status": status,
         "attend_in": attend_msg
     })
 # # =====================================
