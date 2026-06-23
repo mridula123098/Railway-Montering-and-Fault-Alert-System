@@ -550,7 +550,7 @@ if analyse_clicked and uploaded_file is not None:
     #     print("Database Save Error:", e)
 
     # delete temp image
-    # os.unlink(image_path)
+    os.unlink(image_path)
 
     if result["max_temp"] is None:
 
