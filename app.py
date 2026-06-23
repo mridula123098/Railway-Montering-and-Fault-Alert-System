@@ -20,7 +20,7 @@ import base64
 import pandas as pd
 from datetime import datetime
 from thermal_logic import process_image, get_station_from_filename
-# from database import save_report
+from database import save_report
 # ═══════════════════════════════════════════════════════════════════
 # PAGE CONFIG
 # ═══════════════════════════════════════════════════════════════════
@@ -447,7 +447,17 @@ if analyse_clicked and uploaded_file is not None:
     with center:
         with st.spinner("Analysing thermal image..."):
             result = process_image(image_path)
-
+save_report({
+    "image_name": uploaded_file.name,
+    "section": station["section"] if station else "",
+    "ohe_mast": station["ohe_mast"] if station else "",
+    "scale_max": result["scale_t_max"],
+    "scale_min": result["scale_t_min"],
+    "wire_max": result["max_temp"],
+    "wire_min": result["min_temp"],
+    "delta_t": result["delta"],
+    "status": result["status"]
+})
 # # =====================================
 # # SAVE TO DATABASE
 # # =====================================
