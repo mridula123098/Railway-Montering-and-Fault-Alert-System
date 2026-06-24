@@ -189,21 +189,16 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
 
 def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
     try:
-        print("IMAGE FILE:", image_filename)
-        print("EXCEL FILE:", excel_path)
         basename = os.path.splitext(os.path.basename(image_filename))[0]
         parts    = basename.split("-")
-        print("Parts:", parts)
         if len(parts) < 2:
             return None
-
         time_str = parts[1]
         img_time = datetime.strptime(time_str, "%H%M%S").time()
 
         # ── Read Excel with its own header ────────────────────
         # df = pd.read_excel(excel_path, header=0)
         df = pd.read_excel(excel_path)
-        print("Detected columns:", df.columns.tolist())
         def find_col(df, keywords):
             """Find column whose name contains any of the keywords."""
             for col in df.columns:
@@ -215,9 +210,6 @@ def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
         ohe_col = find_col(df, ["ohe", "mast"])
         if ohe_col:
             df[ohe_col] = df[ohe_col].astype(str)
-
-        # Print columns so you can verify (remove after testing)
-        print(f"[Excel columns] {df.columns.tolist()}")
 
         # ── Auto-detect column names (case-insensitive) ───────
         # def find_col(df, keywords):
@@ -231,10 +223,6 @@ def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
         col_section  = find_col(df, ["section", "station", "name"])
         col_ohe      = find_col(df, ["ohe", "mast"])
         col_datetime = find_col(df, ["date", "time", "datetime"])
-
-        print("Section column:", col_section)
-        print("OHE column:", col_ohe)
-        print("Datetime column:", col_datetime)
         
         if not col_datetime:
             print("[station lookup] Could not find Date/Time column")
@@ -262,8 +250,6 @@ def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
         df["parsed_dt"] = df[col_datetime].apply(parse_dt)
         df = df.dropna(subset=["parsed_dt"])
         
-        print("Rows after parsing:", len(df))
-        
         if df.empty:
             print("[station lookup] No rows after date parsing")
             return None
@@ -278,17 +264,13 @@ def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
         )
 
         nearest = df.loc[df["diff_secs"].idxmin()]
-
         if nearest["diff_secs"] <= 10:
-            print("DEBUG: MATCH FOUND")
             return {
                 "section"      : str(nearest[col_section]).strip(),
                 "ohe_mast"     : str(nearest[col_ohe]).strip() if col_ohe else "N/A",
-                # "ohe_mast": str(row[ohe_col]).split(" ")[0],
                 "matched_time" : nearest["parsed_dt"].strftime("%H:%M:%S"),
                 "diff_seconds" : int(nearest["diff_secs"])
             }
-        print("DEBUG: returning None because diff_secs > 10") 
         return None
 
     except Exception as e:
