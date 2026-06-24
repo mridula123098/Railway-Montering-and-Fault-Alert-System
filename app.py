@@ -463,8 +463,6 @@ if analyse_clicked and uploaded_file is not None:
         attend_msg = "Normal — No fault detected"
     st.write("Station object:", station)
 
-    st.write("DEBUG station =", station)
-
     if station:
         st.write("Section =", station["section"])
         st.write("OHE =", station["ohe_mast"])
