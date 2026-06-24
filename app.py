@@ -245,8 +245,8 @@ div[data-testid="stButton"] > button:hover {
     text-align: center;
     font-size: 20px;
     font-weight: 700;
-    color: #111;
-    margin-top: 20px;
+    color: #ff0000;
+    margin-top: 21px;
     padding-top: 14px;
     border-top: 1px solid #ddd;
     font-family: Arial, sans-serif;
