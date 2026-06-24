@@ -272,7 +272,7 @@ def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
         #         "diff_seconds" : int(nearest["diff_secs"])
         #     }
         # return None
-        if nearest["diff_secs"] <= 10:
+        if nearest["diff_secs"] <= 300:
             ohe_raw = nearest[col_ohe] if col_ohe else "N/A"
 
             # Excel reads "12/1" as a date — convert back to d/m format
