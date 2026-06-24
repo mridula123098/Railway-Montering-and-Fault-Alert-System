@@ -264,15 +264,37 @@ def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
         )
 
         nearest = df.loc[df["diff_secs"].idxmin()]
+        # if nearest["diff_secs"] <= 10:
+        #     return {
+        #         "section"      : str(nearest[col_section]).strip(),
+        #         "ohe_mast"     : str(nearest[col_ohe]).strip() if col_ohe else "N/A",
+        #         "matched_time" : nearest["parsed_dt"].strftime("%H:%M:%S"),
+        #         "diff_seconds" : int(nearest["diff_secs"])
+        #     }
+        # return None
         if nearest["diff_secs"] <= 10:
+            ohe_raw = nearest[col_ohe] if col_ohe else "N/A"
+
+            # Excel reads "12/1" as a date — convert back to d/m format
+            if hasattr(ohe_raw, 'strftime'):
+                ohe_str = f"{ohe_raw.day}/{ohe_raw.month}"
+            elif "00:00:00" in str(ohe_raw):
+                try:
+                    dt = datetime.strptime(
+                        str(ohe_raw).strip(), "%Y-%m-%d %H:%M:%S"
+                    )
+                    ohe_str = f"{dt.day}/{dt.month}"
+                except Exception:
+                    ohe_str = str(ohe_raw).strip()
+            else:
+                ohe_str = str(ohe_raw).strip().replace(".0", "")
+
             return {
                 "section"      : str(nearest[col_section]).strip(),
-                "ohe_mast"     : str(nearest[col_ohe]).strip() if col_ohe else "N/A",
+                "ohe_mast"     : ohe_str,
                 "matched_time" : nearest["parsed_dt"].strftime("%H:%M:%S"),
                 "diff_seconds" : int(nearest["diff_secs"])
             }
-        return None
-
     except Exception as e:
         print(f"[station lookup error] {e}")
         return None
