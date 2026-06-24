@@ -453,10 +453,10 @@ if analyse_clicked and uploaded_file is not None:
         # Get station info safely
         sec      = station["section"]  if (station and station.get("diff_seconds", 999) <= 300) else "Unknown"
         ohe      = station["ohe_mast"] if (station and station.get("diff_seconds", 999) <= 300) else "Unknown"
-
+        IST== timezone(timedelta(hours=5, minutes=30))
         save_report({
             # "timestamp"   : datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            IST== timezone(timedelta(hours=5, minutes=30))
+            
             "timestamp": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
             "image_name"  : uploaded_file.name,
             "capture_date": extracted_date,
