@@ -315,7 +315,7 @@ with center:
         station    = get_station_from_filename(uploaded_file.name, excel_path)
         if station:
 
-            if station["diff_seconds"] <= 10:
+            if station["diff_seconds"] <= 300:
                 st.markdown(f"""
                 <div class="station-badge">
                     📍 Section: <span>{station['section']}</span>
