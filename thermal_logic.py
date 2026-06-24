@@ -206,7 +206,7 @@ def get_station_from_filename(image_filename, excel_path=None):
 
         
         def find_col(df, keywords):
-            """Find column whose name contains any of the keywords."""
+        
             for col in df.columns:
                 col_lower = str(col).lower()
                 if any(kw in col_lower for kw in keywords):
@@ -337,9 +337,6 @@ def process_image(image_path):
             t_min = min(t_max_abs or 0, t_min_abs or 0)
 
     # ── Temperature map ───────────────────────────────────────────
-    print("DEBUG scale =", scale)
-    print("DEBUG t_max =", t_max, type(t_max))
-    print("DEBUG t_min =", t_min, type(t_min))
     temp_map = map_pixels_to_temperature(color_img, scale, t_max, t_min)
 
     # ── Wire segmentation + Delta T ───────────────────────────────
