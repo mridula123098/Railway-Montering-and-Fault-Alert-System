@@ -187,7 +187,8 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
 # STATION LOOKUP
 # ═══════════════════════════════════════════════════════════════════
 
-def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
+# def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
+def get_station_from_filename(image_filename, excel_path=None):
     try:
         basename = os.path.splitext(os.path.basename(image_filename))[0]
         parts    = basename.split("-")
@@ -197,8 +198,13 @@ def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
         img_time = datetime.strptime(time_str, "%H%M%S").time()
 
         # ── Read Excel with its own header ────────────────────
-        # df = pd.read_excel(excel_path, header=0)
-        df = pd.read_excel(excel_path)
+        # df = pd.read_excel(excel_path)
+
+        SHEET_ID = "13W4XDKVK384EfZ5rxtccApLsMkca_Jz22qzz-uyrHf8"
+        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
+        df = pd.read_csv(url)
+
+        
         def find_col(df, keywords):
             """Find column whose name contains any of the keywords."""
             for col in df.columns:
@@ -211,14 +217,6 @@ def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
         if ohe_col:
             df[ohe_col] = df[ohe_col].astype(str)
 
-        # ── Auto-detect column names (case-insensitive) ───────
-        # def find_col(df, keywords):
-        #     """Find column whose name contains any of the keywords."""
-        #     for col in df.columns:
-        #         col_lower = str(col).lower()
-        #         if any(kw in col_lower for kw in keywords):
-        #             return col
-        #     return None
 
         col_section  = find_col(df, ["section", "station", "name"])
         col_ohe      = find_col(df, ["ohe", "mast"])
@@ -264,14 +262,7 @@ def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
         )
 
         nearest = df.loc[df["diff_secs"].idxmin()]
-        # if nearest["diff_secs"] <= 10:
-        #     return {
-        #         "section"      : str(nearest[col_section]).strip(),
-        #         "ohe_mast"     : str(nearest[col_ohe]).strip() if col_ohe else "N/A",
-        #         "matched_time" : nearest["parsed_dt"].strftime("%H:%M:%S"),
-        #         "diff_seconds" : int(nearest["diff_secs"])
-        #     }
-        # return None
+  
         if nearest["diff_secs"] <= 300:
             ohe_raw = nearest[col_ohe] if col_ohe else "N/A"
     
