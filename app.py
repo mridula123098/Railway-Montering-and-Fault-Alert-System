@@ -431,6 +431,7 @@ if analyse_clicked and uploaded_file is not None:
             
     status = result["status"]   # or result["status"] depending on thermal_logic.py
     from datetime import datetime
+    from zoneinfo import ZoneInfo
     
     if "CRITICAL" in status:
         val_class = "val-red"
@@ -454,7 +455,10 @@ if analyse_clicked and uploaded_file is not None:
         ohe      = station["ohe_mast"] if (station and station.get("diff_seconds", 999) <= 300) else "Unknown"
 
         save_report({
-            "timestamp"   : datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            # "timestamp"   : datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": datetime.now(
+                ZoneInfo("Asia/Kolkata")
+            ).isoformat(),
             "image_name"  : uploaded_file.name,
             "capture_date": extracted_date,
             "capture_time": extracted_time,
