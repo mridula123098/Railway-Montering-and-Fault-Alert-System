@@ -200,6 +200,15 @@ def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
         # ── Read Excel with its own header ────────────────────
         # df = pd.read_excel(excel_path, header=0)
         df = pd.read_excel(excel_path)
+        
+        def find_col(df, keywords):
+            """Find column whose name contains any of the keywords."""
+            for col in df.columns:
+                col_lower = str(col).lower()
+                if any(kw in col_lower for kw in keywords):
+                    return col
+            return None
+            
         ohe_col = find_col(df, ["ohe", "mast"])
         if ohe_col:
             df[ohe_col] = df[ohe_col].astype(str)
@@ -208,13 +217,13 @@ def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
         print(f"[Excel columns] {df.columns.tolist()}")
 
         # ── Auto-detect column names (case-insensitive) ───────
-        def find_col(df, keywords):
-            """Find column whose name contains any of the keywords."""
-            for col in df.columns:
-                col_lower = str(col).lower()
-                if any(kw in col_lower for kw in keywords):
-                    return col
-            return None
+        # def find_col(df, keywords):
+        #     """Find column whose name contains any of the keywords."""
+        #     for col in df.columns:
+        #         col_lower = str(col).lower()
+        #         if any(kw in col_lower for kw in keywords):
+        #             return col
+        #     return None
 
         col_section  = find_col(df, ["section", "station", "name"])
         col_ohe      = find_col(df, ["ohe", "mast"])
@@ -262,6 +271,7 @@ def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
         nearest = df.loc[df["diff_secs"].idxmin()]
 
         if nearest["diff_secs"] <= 10:
+            print("DEBUG: MATCH FOUND")
             return {
                 "section"      : str(nearest[col_section]).strip(),
                 "ohe_mast"     : str(nearest[col_ohe]).strip() if col_ohe else "N/A",
@@ -269,6 +279,7 @@ def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
                 "matched_time" : nearest["parsed_dt"].strftime("%H:%M:%S"),
                 "diff_seconds" : int(nearest["diff_secs"])
             }
+        print("DEBUG: returning None because diff_secs > 10") 
         return None
 
     except Exception as e:
