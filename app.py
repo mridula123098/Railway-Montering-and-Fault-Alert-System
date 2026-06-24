@@ -450,14 +450,19 @@ if analyse_clicked and uploaded_file is not None:
         attend_msg = "Normal — No fault detected"
     # ── Save to Supabase ──────────────────────────────
     try:
-        # Get station info safely
-        sec      = station["section"]  if (station and station.get("diff_seconds", 999) <= 300) else "Unknown"
-        ohe      = station["ohe_mast"] if (station and station.get("diff_seconds", 999) <= 300) else "Unknown"
-        IST== timezone(timedelta(hours=5, minutes=30))
+        from zoneinfo import ZoneInfo
+        IST = ZoneInfo("Asia/Kolkata")  # ✅ fix 1: = not ==, and use ZoneInfo properly
+    
+        # ✅ fix 2: guard against station being undefined
+        station_info = station if (
+            "station" in dir() and station and station.get("diff_seconds", 999) <= 300
+        ) else None
+    
+        sec = station_info["section"]  if station_info else "Unknown"
+        ohe = station_info["ohe_mast"] if station_info else "Unknown"
+    
         save_report({
-            # "timestamp"   : datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            
-            "timestamp": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp"   : datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
             "image_name"  : uploaded_file.name,
             "capture_date": extracted_date,
             "capture_time": extracted_time,
@@ -471,9 +476,35 @@ if analyse_clicked and uploaded_file is not None:
             "status"      : result["status"],
             "attend_in"   : attend_msg
         })
-        print(f"[DB] Saved — section={sec}, ohe={ohe}")
+        st.success("✅ Report saved to database.")   # ✅ fix 3: visible confirmation
+    
     except Exception as e:
-        print(f"[DB save error] {e}")
+        st.error(f"❌ Database save error: {e}")     # ✅ fix 4: visible error, not just print
+    # try:
+    #     # Get station info safely
+    #     sec      = station["section"]  if (station and station.get("diff_seconds", 999) <= 300) else "Unknown"
+    #     ohe      = station["ohe_mast"] if (station and station.get("diff_seconds", 999) <= 300) else "Unknown"
+    
+    #     save_report({
+    #         "timestamp"   : datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    #         "image_name"  : uploaded_file.name,
+    #         "capture_date": extracted_date,
+    #         "capture_time": extracted_time,
+    #         "section"     : sec,
+    #         "ohe_mast"    : ohe,
+    #         "scale_max"   : result["scale_t_max"],
+    #         "scale_min"   : result["scale_t_min"],
+    #         "wire_max"    : result["max_temp"],
+    #         "wire_min"    : result["min_temp"],
+    #         "delta_t"     : result["delta"],
+    #         "status"      : result["status"],
+    #         "attend_in"   : attend_msg
+    #     })
+    #     print(f"[DB] Saved — section={sec}, ohe={ohe}")
+    # except Exception as e:
+    #     print(f"[DB save error] {e}")
+
+    
     # save_report({
     #     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     #     "image_name": uploaded_file.name,
