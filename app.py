@@ -312,7 +312,11 @@ with center:
 
         # Station lookup
         excel_path = os.path.join(os.path.dirname(__file__), "testing_sheet.xlsx")
-        station    = get_station_from_filename(uploaded_file.name, excel_path)
+        # station    = get_station_from_filename(uploaded_file.name, excel_path)
+        
+        station    = get_station_from_filename(uploaded_file.name)
+
+        
         if station:
 
             if station["diff_seconds"] <= 300:
