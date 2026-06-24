@@ -243,7 +243,7 @@ div[data-testid="stButton"] > button:hover {
 /* ── Attend line ── */
 .attend-line {
     text-align: center;
-    font-size: 14px;
+    font-size: 20px;
     font-weight: 700;
     color: #111;
     margin-top: 20px;
