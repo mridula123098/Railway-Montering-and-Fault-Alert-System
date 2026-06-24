@@ -447,22 +447,45 @@ if analyse_clicked and uploaded_file is not None:
     else:
         val_class = "val-green"
         attend_msg = "Normal — No fault detected"
-    
-    save_report({
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "image_name": uploaded_file.name,
-        "capture_date": extracted_date,
-        "capture_time": extracted_time,
-        "section": station["section"] if station else "",
-        "ohe_mast": station["ohe_mast"] if station else "",
-        "scale_max": result["scale_t_max"],
-        "scale_min": result["scale_t_min"],
-        "wire_max": result["max_temp"],
-        "wire_min": result["min_temp"],
-        "delta_t": result["delta"],
-        "status": status,
-        "attend_in": attend_msg
-    })
+    # ── Save to Supabase ──────────────────────────────
+    try:
+        # Get station info safely
+        sec      = station["section"]  if (station and station.get("diff_seconds", 999) <= 300) else "Unknown"
+        ohe      = station["ohe_mast"] if (station and station.get("diff_seconds", 999) <= 300) else "Unknown"
+
+        save_report({
+            "timestamp"   : datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "image_name"  : uploaded_file.name,
+            "capture_date": extracted_date,
+            "capture_time": extracted_time,
+            "section"     : sec,
+            "ohe_mast"    : ohe,
+            "scale_max"   : result["scale_t_max"],
+            "scale_min"   : result["scale_t_min"],
+            "wire_max"    : result["max_temp"],
+            "wire_min"    : result["min_temp"],
+            "delta_t"     : result["delta"],
+            "status"      : result["status"],
+            "attend_in"   : attend_msg
+        })
+        print(f"[DB] Saved — section={sec}, ohe={ohe}")
+    except Exception as e:
+        print(f"[DB save error] {e}")
+    # save_report({
+    #     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    #     "image_name": uploaded_file.name,
+    #     "capture_date": extracted_date,
+    #     "capture_time": extracted_time,
+    #     "section": station["section"] if station else "",
+    #     "ohe_mast": station["ohe_mast"] if station else "",
+    #     "scale_max": result["scale_t_max"],
+    #     "scale_min": result["scale_t_min"],
+    #     "wire_max": result["max_temp"],
+    #     "wire_min": result["min_temp"],
+    #     "delta_t": result["delta"],
+    #     "status": status,
+    #     "attend_in": attend_msg
+    # })
 # # =====================================
 # # SAVE TO DATABASE
 # # =====================================
