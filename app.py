@@ -317,19 +317,23 @@ with center:
         if station:
 
             if station["diff_seconds"] <= 10:
-
                 st.markdown(f"""
                 <div class="station-badge">
                     📍 Section:
                     <b>{station['section']}</b>
+
                     &nbsp; | &nbsp;
 
                     OHE Mast:
                     <b>{station['ohe_mast']}</b>
+
                     &nbsp; | &nbsp;
 
                     Matched:
                     <b>{station['matched_time']}</b>
+
+                    &nbsp;
+
                     (±{station['diff_seconds']}s)
                 </div>
                 """, unsafe_allow_html=True)
