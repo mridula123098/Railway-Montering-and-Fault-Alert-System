@@ -313,39 +313,26 @@ with center:
         # Station lookup
         excel_path = os.path.join(os.path.dirname(__file__), "testing_sheet.xlsx")
         station    = get_station_from_filename(uploaded_file.name, excel_path)
-
         if station:
 
             if station["diff_seconds"] <= 10:
                 st.markdown(f"""
                 <div class="station-badge">
-                    📍 Section:
-                    <b>{station['section']}</b>
-
-                    &nbsp; | &nbsp;
-
-                    OHE Mast:
-                    <b>{station['ohe_mast']}</b>
-
-                    &nbsp; | &nbsp;
-
-                    Matched:
-                    <b>{station['matched_time']}</b>
-
-                    &nbsp;
-
+                    📍 Section: <span>{station['section']}</span>
+                    &nbsp;|&nbsp;
+                    OHE Mast: <span>{station['ohe_mast']}</span>
+                    &nbsp;|&nbsp;
+                    Matched: <span>{station['matched_time']}</span>
                     (±{station['diff_seconds']}s)
                 </div>
                 """, unsafe_allow_html=True)
 
             else:
-
                 st.markdown("""
-                <div class="station-badge">
-                    ⚠️ No station match found.
+                <div class="station-badge" style="color:#888;">
+                    ⚠️ No station match found within 5 minutes.
                 </div>
                 """, unsafe_allow_html=True)
-
         else:
             try:
                 df = pd.read_excel(excel_path, header=0)
