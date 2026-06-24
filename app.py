@@ -18,7 +18,7 @@ import tempfile
 import os
 import base64
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from thermal_logic import process_image, get_station_from_filename
 from database import save_report
 # ═══════════════════════════════════════════════════════════════════
@@ -453,13 +453,11 @@ if analyse_clicked and uploaded_file is not None:
         # Get station info safely
         sec      = station["section"]  if (station and station.get("diff_seconds", 999) <= 300) else "Unknown"
         ohe      = station["ohe_mast"] if (station and station.get("diff_seconds", 999) <= 300) else "Unknown"
-# DEBUG LINE 
-        current_time = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
-        print("TIMESTAMP SENT TO DB =", current_time)
-        
+
         save_report({
             # "timestamp"   : datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "timestamp": current_time,
+            IST = timezone(timedelta(hours=5, minutes=30))
+            "timestamp": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
             "image_name"  : uploaded_file.name,
             "capture_date": extracted_date,
             "capture_time": extracted_time,
