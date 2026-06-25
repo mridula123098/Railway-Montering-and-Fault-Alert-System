@@ -121,7 +121,15 @@ footer     {visibility:hidden;}
     margin: 24px auto;
     padding: 0 24px;
 }
+/* Hide sidebar */
+section[data-testid="stSidebar"] {
+    display: none !important;
+}
 
+/* Hide sidebar toggle arrow */
+[data-testid="collapsedControl"] {
+    display: none !important;
+}
 /* ── Info / station badges ── */
 .info-badge {
     background: #f5f8ff;
