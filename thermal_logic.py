@@ -130,9 +130,9 @@ if os.name == "nt":
 #         or minus_in_bright_region(inside)
 #     )
 def has_minus_sign(crop_bgr):
-    """Detect minus sign above, below, or inside the grey number box."""
     gray        = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
     bright_rows = [r for r in range(gray.shape[0]) if gray[r].mean() > 100]
+
     if not bright_rows:
         return False
 
@@ -140,26 +140,19 @@ def has_minus_sign(crop_bgr):
     box_end   = bright_rows[-1]
     above     = gray[:box_start, :]
     below     = gray[box_end + 1:, :]
-    inside    = gray[box_start:box_end + 1, :]
 
     def minus_in_dark(region):
+        if region.shape[0] == 0:
+            return False
         for row in range(region.shape[0]):
             if region[row].mean() < 80 and region[row].max() > 50:
                 return True
         return False
-
-    def minus_in_bright(region):
-        if region.shape[0] < 3:
-            return False
-        means        = np.array([region[r].mean() for r in range(region.shape[0])])
-        overall_mean = means.mean()
-        return bool(np.any(means < overall_mean - 25))
-
     try:
-        big  = cv2.resize(crop_bgr,
-                          (crop_bgr.shape[1]*8, crop_bgr.shape[0]*8),
-                          interpolation=cv2.INTER_LANCZOS4)
-        g    = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
+        big = cv2.resize(crop_bgr,
+                         (crop_bgr.shape[1]*8, crop_bgr.shape[0]*8),
+                         interpolation=cv2.INTER_LANCZOS4)
+        g   = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
         for thr in [150, 160, 180, 120]:
             _, th = cv2.threshold(g, thr, 255, cv2.THRESH_BINARY)
             for psm in [7, 10, 8, 13]:
@@ -172,19 +165,10 @@ def has_minus_sign(crop_bgr):
                     return True
     except Exception:
         pass
-
-    return (
-        minus_in_dark(above)
-        or minus_in_dark(below)
-        or minus_in_bright(inside)
-    )
-
+    return minus_in_dark(above)
 
 def ocr_temperature_label(crop_bgr):
-    """
-    OCR the absolute number, then apply sign via has_minus_sign.
-    Returns signed float or None.
-    """
+
     big  = cv2.resize(crop_bgr,
                       (crop_bgr.shape[1]*8, crop_bgr.shape[0]*8),
                       interpolation=cv2.INTER_LANCZOS4)
@@ -208,9 +192,7 @@ def ocr_temperature_label(crop_bgr):
     if abs_val is None:
         return None
 
-    # Apply sign
-    is_negative = has_minus_sign(crop_bgr)
-    return -abs_val if is_negative else abs_val
+    return -abs_val if has_minus_sign(crop_bgr) else abs_val
 # ═══════════════════════════════════════════════════════════════════
 # LUT BUILDING
 # ═══════════════════════════════════════════════════════════════════
@@ -443,8 +425,11 @@ def process_image(image_path):
     scale = color_img[:, int(w * 0.94):int(w * 0.98)]
     sh, sw = scale.shape[:2]
 
-    top    = scale[int(sh * 0.13):int(sh * 0.23), :]
-    bottom = scale[int(sh * 0.78):int(sh * 0.88), :]
+    # top    = scale[int(sh * 0.13):int(sh * 0.23), :]
+    # bottom = scale[int(sh * 0.78):int(sh * 0.88), :]
+    # Wider crop to capture minus signs above the grey box
+    top    = scale[int(sh*0.10):int(sh*0.25), :]  
+    bottom = scale[int(sh*0.75):int(sh*0.92), :]    
 
     # ── OCR temperatures ─────────────────────────────────────────
     # t_max_abs = crop_to_temp(top)
