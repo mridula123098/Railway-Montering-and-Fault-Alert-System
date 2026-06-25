@@ -27,7 +27,7 @@ from database import save_report
 st.set_page_config(
     page_title="KRC Thermal Fault Detection",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 # ═══════════════════════════════════════════════════════════════════
 # DATABASE LINK
@@ -64,7 +64,7 @@ st.markdown("""
 <style>
 #MainMenu {visibility:hidden;}
 footer     {visibility:hidden;}
-header     {visibility:hidden;}
+# header     {visibility:visible;}
 
 .stApp {
     background-color: white;
