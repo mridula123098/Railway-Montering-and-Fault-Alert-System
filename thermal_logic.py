@@ -129,35 +129,88 @@ if os.name == "nt":
 #         or minus_in_dark_region(below)
 #         or minus_in_bright_region(inside)
 #     )
-def ocr_temperature_label(crop_bgr):
-    big  = cv2.resize(
-        crop_bgr,
-        (crop_bgr.shape[1] * 8, crop_bgr.shape[0] * 8),
-        interpolation=cv2.INTER_LANCZOS4
+def has_minus_sign(crop_bgr):
+    """Detect minus sign above, below, or inside the grey number box."""
+    gray        = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
+    bright_rows = [r for r in range(gray.shape[0]) if gray[r].mean() > 100]
+    if not bright_rows:
+        return False
+
+    box_start = bright_rows[0]
+    box_end   = bright_rows[-1]
+    above     = gray[:box_start, :]
+    below     = gray[box_end + 1:, :]
+    inside    = gray[box_start:box_end + 1, :]
+
+    def minus_in_dark(region):
+        for row in range(region.shape[0]):
+            if region[row].mean() < 80 and region[row].max() > 50:
+                return True
+        return False
+
+    def minus_in_bright(region):
+        if region.shape[0] < 3:
+            return False
+        means        = np.array([region[r].mean() for r in range(region.shape[0])])
+        overall_mean = means.mean()
+        return bool(np.any(means < overall_mean - 25))
+
+    try:
+        big  = cv2.resize(crop_bgr,
+                          (crop_bgr.shape[1]*8, crop_bgr.shape[0]*8),
+                          interpolation=cv2.INTER_LANCZOS4)
+        g    = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
+        for thr in [150, 160, 180, 120]:
+            _, th = cv2.threshold(g, thr, 255, cv2.THRESH_BINARY)
+            for psm in [7, 10, 8, 13]:
+                cfg = f"--psm {psm} -c tessedit_char_whitelist=0123456789.-"
+                txt = pytesseract.image_to_string(
+                    Image.fromarray(th), config=cfg
+                ).strip()
+                nums = re.findall(r"-?\d+\.?\d*", txt)
+                if nums and "-" in txt:
+                    return True
+    except Exception:
+        pass
+
+    return (
+        minus_in_dark(above)
+        or minus_in_dark(below)
+        or minus_in_bright(inside)
     )
+
+
+def ocr_temperature_label(crop_bgr):
+    """
+    OCR the absolute number, then apply sign via has_minus_sign.
+    Returns signed float or None.
+    """
+    big  = cv2.resize(crop_bgr,
+                      (crop_bgr.shape[1]*8, crop_bgr.shape[0]*8),
+                      interpolation=cv2.INTER_LANCZOS4)
     gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
 
-    best           = None
-    best_has_minus = False
-
+    abs_val = None
     for thr in [150, 160, 120, 180, 100]:
         _, th = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY)
         for psm in [7, 10, 8, 13]:
-            cfg  = f"--psm {psm} -c tessedit_char_whitelist=0123456789.-"
+            cfg  = f"--psm {psm} -c tessedit_char_whitelist=0123456789."
             txt  = pytesseract.image_to_string(
                 Image.fromarray(th), config=cfg
             ).strip()
-            nums = re.findall(r"-?\d+\.?\d*", txt)
+            nums = re.findall(r"\d+\.?\d*", txt)
             if nums:
-                val       = float(nums[0])
-                has_minus = "-" in txt
-                if best is None or (has_minus and not best_has_minus):
-                    best           = val
-                    best_has_minus = has_minus
-        if best_has_minus:
+                abs_val = float(nums[0])
+                break
+        if abs_val is not None:
             break
 
-    return best
+    if abs_val is None:
+        return None
+
+    # Apply sign
+    is_negative = has_minus_sign(crop_bgr)
+    return -abs_val if is_negative else abs_val
 # ═══════════════════════════════════════════════════════════════════
 # LUT BUILDING
 # ═══════════════════════════════════════════════════════════════════
@@ -351,7 +404,6 @@ def get_station_from_filename(image_filename, excel_path=None):
         if nearest["diff_secs"] <= 300:
             ohe_raw = nearest[col_ohe] if col_ohe else "N/A"
     
-                # Excel reads "12/1" as a date — convert back to d/m format
             if hasattr(ohe_raw, 'strftime'):
                 ohe_str = f"{ohe_raw.day}/{ohe_raw.month}"
             elif "00:00:00" in str(ohe_raw):
@@ -417,7 +469,7 @@ def process_image(image_path):
     # NEW — replace with this:
     t_max = ocr_temperature_label(top)
     t_min = ocr_temperature_label(bottom)
-    # Sanity check: top must always be hotter than bottom
+    # Sanity check
     if t_max is not None and t_min is not None and t_max < t_min:
         t_max, t_min = t_min, t_max
 
