@@ -32,10 +32,10 @@ st.set_page_config(
 # ═══════════════════════════════════════════════════════════════════
 # DATABASE LINK
 # ═══════════════════════════════════════════════════════════════════
-st.page_link(
-    "pages/Database_Records.py",
-    label="View Database Records"
-)
+# st.page_link(
+#     "pages/Database_Records.py",
+#     label="View Database Records"
+# )
 # ═══════════════════════════════════════════════════════════════════
 # LOGO
 # ═══════════════════════════════════════════════════════════════════
