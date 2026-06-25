@@ -49,35 +49,34 @@ if os.name == "nt":
 #             best = float(nums[0])
 #     return best
 
-def crop_to_temp(crop_bgr):
-    """OCR a grey label box and return the numeric value (absolute)."""
-    big = cv2.resize(
-        crop_bgr,
-        (crop_bgr.shape[1] * 8, crop_bgr.shape[0] * 8),
-        interpolation=cv2.INTER_LANCZOS4
-    )
-    gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
+# def crop_to_temp(crop_bgr):
+#     """OCR a grey label box and return the numeric value (absolute)."""
+#     big = cv2.resize(
+#         crop_bgr,
+#         (crop_bgr.shape[1] * 8, crop_bgr.shape[0] * 8),
+#         interpolation=cv2.INTER_LANCZOS4
+#     )
+#     gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
 
-    best = None
-    # Try multiple thresholds — different images need different values
-    for thr in [150, 180, 120]:
-        _, th = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY)
-        for psm in [7, 8, 13]:
-            cfg  = f"--psm {psm} -c tessedit_char_whitelist=0123456789."
-            txt  = pytesseract.image_to_string(
-                Image.fromarray(th), config=cfg
-            ).strip()
-            nums = re.findall(r"\d+\.?\d*", txt)
-            if nums and best is None:
-                best = float(nums[0])
-        if best is not None:
-            break  
-    return best
-
+#     best = None
+#     # Try multiple thresholds — different images need different values
+#     for thr in [150, 180, 120]:
+#         _, th = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY)
+#         for psm in [7, 8, 13]:
+#             cfg  = f"--psm {psm} -c tessedit_char_whitelist=0123456789."
+#             txt  = pytesseract.image_to_string(
+#                 Image.fromarray(th), config=cfg
+#             ).strip()
+#             nums = re.findall(r"\d+\.?\d*", txt)
+#             if nums and best is None:
+#                 best = float(nums[0])
+#         if best is not None:
+#             break  
+#     return best
 # def has_minus_sign(crop_bgr):
-#     """Detect a minus sign above/below the grey number box."""
-#     gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
+#     gray        = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
 #     bright_rows = [r for r in range(gray.shape[0]) if gray[r].mean() > 100]
+
 #     if not bright_rows:
 #         return False
 
@@ -85,8 +84,10 @@ def crop_to_temp(crop_bgr):
 #     box_end   = bright_rows[-1]
 #     above     = gray[:box_start, :]
 #     below     = gray[box_end + 1:, :]
+#     inside    = gray[box_start:box_end + 1, :]
 
-#     def minus_in(region):
+#     def minus_in_dark_region(region):
+#         """Minus sign = dark row with some bright pixels in mostly dark area."""
 #         if region.shape[0] == 0:
 #             return False
 #         for row in range(region.shape[0]):
@@ -94,64 +95,69 @@ def crop_to_temp(crop_bgr):
 #                 return True
 #         return False
 
-#     return minus_in(above) or minus_in(below)
-def has_minus_sign(crop_bgr):
-    gray        = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
-    bright_rows = [r for r in range(gray.shape[0]) if gray[r].mean() > 100]
+#     def minus_in_bright_region(region):
+#         if region.shape[0] < 3:
+#             return False
+#         row_means = np.array([region[r].mean() for r in range(region.shape[0])])
+#         overall_mean = row_means.mean()
 
-    if not bright_rows:
-        return False
+#         for i, m in enumerate(row_means):
+#             if m < overall_mean - 25 and m < 160:
+#                 return True
+#         return False
+#     try:
+#         import pytesseract
+#         from PIL import Image as PILImage
+#         big  = cv2.resize(crop_bgr,
+#                           (crop_bgr.shape[1] * 8, crop_bgr.shape[0] * 8),
+#                           interpolation=cv2.INTER_LANCZOS4)
+#         g    = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
+#         for thr in [150, 180, 120]:
+#             _, th = cv2.threshold(g, thr, 255, cv2.THRESH_BINARY)
+#             for psm in [7, 8, 13]:
+#                 cfg = f"--psm {psm} -c tessedit_char_whitelist=0123456789.-"
+#                 txt = pytesseract.image_to_string(
+#                     PILImage.fromarray(th), config=cfg
+#                 ).strip()
+#                 if "-" in txt:
+#                     return True
+#     except Exception:
+#         pass
 
-    box_start = bright_rows[0]
-    box_end   = bright_rows[-1]
-    above     = gray[:box_start, :]
-    below     = gray[box_end + 1:, :]
-    inside    = gray[box_start:box_end + 1, :]
-
-    def minus_in_dark_region(region):
-        """Minus sign = dark row with some bright pixels in mostly dark area."""
-        if region.shape[0] == 0:
-            return False
-        for row in range(region.shape[0]):
-            if region[row].mean() < 80 and region[row].max() > 50:
-                return True
-        return False
-
-    def minus_in_bright_region(region):
-        if region.shape[0] < 3:
-            return False
-        row_means = np.array([region[r].mean() for r in range(region.shape[0])])
-        overall_mean = row_means.mean()
-
-        for i, m in enumerate(row_means):
-            if m < overall_mean - 25 and m < 160:
-                return True
-        return False
-    try:
-        import pytesseract
-        from PIL import Image as PILImage
-        big  = cv2.resize(crop_bgr,
-                          (crop_bgr.shape[1] * 8, crop_bgr.shape[0] * 8),
-                          interpolation=cv2.INTER_LANCZOS4)
-        g    = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
-        for thr in [150, 180, 120]:
-            _, th = cv2.threshold(g, thr, 255, cv2.THRESH_BINARY)
-            for psm in [7, 8, 13]:
-                cfg = f"--psm {psm} -c tessedit_char_whitelist=0123456789.-"
-                txt = pytesseract.image_to_string(
-                    PILImage.fromarray(th), config=cfg
-                ).strip()
-                if "-" in txt:
-                    return True
-    except Exception:
-        pass
-
-    return (
-        minus_in_dark_region(above)
-        or minus_in_dark_region(below)
-        or minus_in_bright_region(inside)
+#     return (
+#         minus_in_dark_region(above)
+#         or minus_in_dark_region(below)
+#         or minus_in_bright_region(inside)
+#     )
+def ocr_temperature_label(crop_bgr):
+    big  = cv2.resize(
+        crop_bgr,
+        (crop_bgr.shape[1] * 8, crop_bgr.shape[0] * 8),
+        interpolation=cv2.INTER_LANCZOS4
     )
+    gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
 
+    best           = None
+    best_has_minus = False
+
+    for thr in [150, 160, 120, 180, 100]:
+        _, th = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY)
+        for psm in [7, 10, 8, 13]:
+            cfg  = f"--psm {psm} -c tessedit_char_whitelist=0123456789.-"
+            txt  = pytesseract.image_to_string(
+                Image.fromarray(th), config=cfg
+            ).strip()
+            nums = re.findall(r"-?\d+\.?\d*", txt)
+            if nums:
+                val       = float(nums[0])
+                has_minus = "-" in txt
+                if best is None or (has_minus and not best_has_minus):
+                    best           = val
+                    best_has_minus = has_minus
+        if best_has_minus:
+            break
+
+    return best
 # ═══════════════════════════════════════════════════════════════════
 # LUT BUILDING
 # ═══════════════════════════════════════════════════════════════════
@@ -375,13 +381,6 @@ def get_station_from_filename(image_filename, excel_path=None):
 # ═══════════════════════════════════════════════════════════════════
 
 def process_image(image_path):
-    """
-    Full pipeline: load → extract scale → build temp map → segment wire → alert.
-
-    Returns dict:
-        scale_t_max, scale_t_min, max_temp, min_temp, delta, status,
-        temp_map, wire_mask
-    """
     color_img = cv2.imread(image_path)
     if color_img is None:
         raise ValueError(f"Cannot load image: {image_path}")
@@ -396,24 +395,31 @@ def process_image(image_path):
     bottom = scale[int(sh * 0.78):int(sh * 0.88), :]
 
     # ── OCR temperatures ─────────────────────────────────────────
-    t_max_abs = crop_to_temp(top)
-    t_min_abs = crop_to_temp(bottom)
+    # t_max_abs = crop_to_temp(top)
+    # t_min_abs = crop_to_temp(bottom)
 
-    top_is_negative = has_minus_sign(top)
-    bot_is_negative = has_minus_sign(bottom)
+    # top_is_negative = has_minus_sign(top)
+    # bot_is_negative = has_minus_sign(bottom)
 
-    t_max = -t_max_abs if (top_is_negative and t_max_abs) else t_max_abs
-    t_min = -t_min_abs if (bot_is_negative and t_min_abs) else t_min_abs
+    # t_max = -t_max_abs if (top_is_negative and t_max_abs) else t_max_abs
+    # t_min = -t_min_abs if (bot_is_negative and t_min_abs) else t_min_abs
 
-    # ── Sanity check: top must be hotter than bottom ──────────────
+    # # ── Sanity check: top must be hotter than bottom ──────────────
+    # if t_max is not None and t_min is not None and t_max < t_min:
+    #     if top_is_negative and not bot_is_negative:
+    #         t_max = t_max_abs
+    #     elif bot_is_negative and not top_is_negative:
+    #         t_min = t_min_abs
+    #     else:
+    #         t_max = max(t_max_abs or 0, t_min_abs or 0)
+    #         t_min = min(t_max_abs or 0, t_min_abs or 0)
+
+    # NEW — replace with this:
+    t_max = ocr_temperature_label(top)
+    t_min = ocr_temperature_label(bottom)
+    # Sanity check: top must always be hotter than bottom
     if t_max is not None and t_min is not None and t_max < t_min:
-        if top_is_negative and not bot_is_negative:
-            t_max = t_max_abs
-        elif bot_is_negative and not top_is_negative:
-            t_min = t_min_abs
-        else:
-            t_max = max(t_max_abs or 0, t_min_abs or 0)
-            t_min = min(t_max_abs or 0, t_min_abs or 0)
+        t_max, t_min = t_min, t_max
 
     # ── Temperature map ───────────────────────────────────────────
     temp_map = map_pixels_to_temperature(color_img, scale, t_max, t_min)
