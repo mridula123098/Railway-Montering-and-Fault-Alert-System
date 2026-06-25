@@ -486,10 +486,10 @@ if analyse_clicked and uploaded_file is not None:
             "attend_in"   : attend_msg
         })
         st.success("✅ Report saved to database.")   
-        st.page_link(
-        "pages/Database_Records.py",
-        label=" View Database Records"
-    )
+
+        if st.button("📊 View Database Records"):
+            st.switch_page("pages/Database_Records.py")
+            
     except Exception as e:
         st.error(f"❌ Database save error: {e}")    
 
