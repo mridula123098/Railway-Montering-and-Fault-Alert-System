@@ -487,8 +487,13 @@ if analyse_clicked and uploaded_file is not None:
         })
         st.success("✅ Report saved to database.")   
 
-        if st.button("📊 View Database Records"):
-            st.switch_page("pages/Database_Records.py")
+        st.success("Report saved to database.")
+
+        col1, col2, col3 = st.columns([1,2,1])
+        
+        with col2:
+            if st.button("📊 View Database Records", key="db_button"):
+                st.switch_page("pages/Database_Records.py")
             
     except Exception as e:
         st.error(f"❌ Database save error: {e}")    
