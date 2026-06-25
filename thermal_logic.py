@@ -30,6 +30,25 @@ if os.name == "nt":
 # OCR HELPERS
 # ═══════════════════════════════════════════════════════════════════
 
+# def crop_to_temp(crop_bgr):
+#     """OCR a grey label box and return the numeric value (absolute)."""
+#     big = cv2.resize(
+#         crop_bgr,
+#         (crop_bgr.shape[1] * 8, crop_bgr.shape[0] * 8),
+#         interpolation=cv2.INTER_LANCZOS4
+#     )
+#     gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
+#     _, th = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+
+#     best = None
+#     for psm in [7, 8, 13]:
+#         cfg = f"--psm {psm} -c tessedit_char_whitelist=0123456789."
+#         txt = pytesseract.image_to_string(Image.fromarray(th), config=cfg).strip()
+#         nums = re.findall(r"\d+\.?\d*", txt)
+#         if nums and best is None:
+#             best = float(nums[0])
+#     return best
+
 def crop_to_temp(crop_bgr):
     """OCR a grey label box and return the numeric value (absolute)."""
     big = cv2.resize(
@@ -38,17 +57,22 @@ def crop_to_temp(crop_bgr):
         interpolation=cv2.INTER_LANCZOS4
     )
     gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
-    _, th = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
 
     best = None
-    for psm in [7, 8, 13]:
-        cfg = f"--psm {psm} -c tessedit_char_whitelist=0123456789."
-        txt = pytesseract.image_to_string(Image.fromarray(th), config=cfg).strip()
-        nums = re.findall(r"\d+\.?\d*", txt)
-        if nums and best is None:
-            best = float(nums[0])
+    # Try multiple thresholds — different images need different values
+    for thr in [150, 180, 120]:
+        _, th = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY)
+        for psm in [7, 8, 13]:
+            cfg  = f"--psm {psm} -c tessedit_char_whitelist=0123456789."
+            txt  = pytesseract.image_to_string(
+                Image.fromarray(th), config=cfg
+            ).strip()
+            nums = re.findall(r"\d+\.?\d*", txt)
+            if nums and best is None:
+                best = float(nums[0])
+        if best is not None:
+            break  
     return best
-
 
 def has_minus_sign(crop_bgr):
     """Detect a minus sign above/below the grey number box."""
