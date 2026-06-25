@@ -495,7 +495,7 @@ if analyse_clicked and uploaded_file is not None:
 
         if st.button("📊 View Database Records", key="db_button"):
             st.write("BUTTON CLICKED")
-            st.switch_page("pages/Database_Records.py")
+            # st.switch_page("pages/Database_Records.py")
 
     except Exception as e:
         st.error(f"❌ Database save error: {e}")    
