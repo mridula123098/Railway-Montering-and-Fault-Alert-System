@@ -168,25 +168,37 @@ def has_minus_sign(crop_bgr):
     return minus_in_dark(above)
 
 def ocr_temperature_label(crop_bgr):
-
     big  = cv2.resize(crop_bgr,
-                      (crop_bgr.shape[1]*8, crop_bgr.shape[0]*8),
-                      interpolation=cv2.INTER_LANCZOS4)
+                      (crop_bgr.shape[1] * 10, crop_bgr.shape[0] * 10),
+                      interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
+    gray = cv2.copyMakeBorder(gray, 8, 8, 8, 8,
+                               cv2.BORDER_CONSTANT, value=255)
 
-    abs_val = None
-    for thr in [150, 160, 120, 180, 100]:
+    abs_val  = None
+    best_len = 0
+
+    _, otsu_th = cv2.threshold(gray, 0, 255,
+                                cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    thresh_candidates = [(None, otsu_th)]
+    for thr in [160, 150, 130, 120, 180, 100]:
         _, th = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY)
-        for psm in [7, 10, 8, 13]:
+        thresh_candidates.append((thr, th))
+
+    for _, th in thresh_candidates:
+        for psm in [7, 8, 13, 6]:
             cfg  = f"--psm {psm} -c tessedit_char_whitelist=0123456789."
             txt  = pytesseract.image_to_string(
                 Image.fromarray(th), config=cfg
             ).strip()
             nums = re.findall(r"\d+\.?\d*", txt)
             if nums:
-                abs_val = float(nums[0])
-                break
-        if abs_val is not None:
+                candidate = float(nums[0])
+                digit_len = len(re.sub(r"\.", "", nums[0]))
+                if digit_len > best_len:
+                    abs_val  = candidate
+                    best_len = digit_len
+        if best_len >= 2:
             break
 
     if abs_val is None:
@@ -428,8 +440,8 @@ def process_image(image_path):
     # top    = scale[int(sh * 0.13):int(sh * 0.23), :]
     # bottom = scale[int(sh * 0.78):int(sh * 0.88), :]
     # Wider crop to capture minus signs above the grey box
-    top    = scale[int(sh*0.10):int(sh*0.25), :]  
-    bottom = scale[int(sh*0.75):int(sh*0.92), :]    
+    top    = scale[int(sh*0.08):int(sh*0.27), :]
+    bottom = scale[int(sh*0.73):int(sh*0.94), :]   
 
     # ── OCR temperatures ─────────────────────────────────────────
     # t_max_abs = crop_to_temp(top)
