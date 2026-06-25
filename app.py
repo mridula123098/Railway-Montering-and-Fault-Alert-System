@@ -520,16 +520,6 @@ if analyse_clicked and uploaded_file is not None:
           <hr class="krc-divider">
           <div class="report-title">Analysis Report</div>
 
-          # <div class="metric-row">
-          #   <span class="metric-key">Scale Max Temperature :</span>
-          #   <span class="metric-val val-blue">{result['scale_t_max']:.1f} °C</span>
-          # </div>
-
-          # <div class="metric-row">
-          #   <span class="metric-key">Scale Min Temperature :</span>
-          #   <span class="metric-val val-blue">{result['scale_t_min']:.1f} °C</span>
-          # </div>
-
           <div class="metric-row">
             <span class="metric-key">Max Temperature :</span>
             <span class="metric-val {val_class}">{result['max_temp']:.1f} °C</span>
