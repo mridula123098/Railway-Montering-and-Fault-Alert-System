@@ -433,7 +433,7 @@ if analyse_clicked and uploaded_file is not None:
         with st.spinner("Analysing thermal image..."):
             result = process_image(image_path)
             
-    status = result["status"]   # or result["status"] depending on thermal_logic.py
+    status = result["status"]   
     from datetime import datetime
     from zoneinfo import ZoneInfo
     
@@ -455,9 +455,8 @@ if analyse_clicked and uploaded_file is not None:
     # ── Save to Supabase ──────────────────────────────
     try:
         from zoneinfo import ZoneInfo
-        IST = ZoneInfo("Asia/Kolkata")  # ✅ fix 1: = not ==, and use ZoneInfo properly
+        IST = ZoneInfo("Asia/Kolkata")  
     
-        # ✅ fix 2: guard against station being undefined
         station_info = station if (
             "station" in dir() and station and station.get("diff_seconds", 999) <= 300
         ) else None
@@ -480,10 +479,10 @@ if analyse_clicked and uploaded_file is not None:
             "status"      : result["status"],
             "attend_in"   : attend_msg
         })
-        st.success("✅ Report saved to database.")   # ✅ fix 3: visible confirmation
+        st.success("✅ Report saved to database.")   
     
     except Exception as e:
-        st.error(f"❌ Database save error: {e}")     # ✅ fix 4: visible error, not just print
+        st.error(f"❌ Database save error: {e}")    
 
     # delete temp image
     os.unlink(image_path)
