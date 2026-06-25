@@ -1,3 +1,8 @@
+import streamlit as st
+
+st.title("DATABASE PAGE TEST")
+st.success("If you see this, multipage navigation works.")
+
 # import streamlit as st
 # import pandas as pd
 # from supabase import create_client
@@ -45,10 +50,7 @@
 
 # except Exception as e:
 #     st.error(f"Database Error: {e}")
-import streamlit as st
 
-st.title("DATABASE PAGE TEST")
-st.success("If you see this, multipage navigation works.")
 
 
 
