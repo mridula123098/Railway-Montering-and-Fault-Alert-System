@@ -423,8 +423,8 @@ def process_image(image_path):
     )
 
     return {
-        # "scale_t_max": t_max,
-        # "scale_t_min": t_min,
+        "scale_t_max": t_max,
+        "scale_t_min": t_min,
         "max_temp"   : result["wire_t_max"],
         "min_temp"   : result["wire_t_min"],
         "delta"      : result["delta_t"],
