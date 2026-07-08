@@ -264,7 +264,7 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
 
     # ── Use bottom 20% as background threshold (not 50%) ─────────
     scale_range = t_max_scale - t_min_scale
-    wire_thresh = t_min_scale + scale_range * 0.20
+    wire_thresh = t_min_scale + scale_range * 0.30
 
     roi_mask = np.zeros((h, w), dtype=np.uint8)
     roi_mask[40:h - 40, 160:w - 80] = 1
@@ -287,8 +287,8 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
         aspect   = max(bw, bh) / max(min(bw, bh), 1)
         solidity = area / max(bw * bh, 1)
         is_ui    = solidity > 0.50
-        is_blob  = area > 1500 and solidity > 0.45 and aspect < 3.0
-        is_wire  = (aspect >= 3.0 or solidity < 0.35) and area > 30
+        is_blob = area > 800  and solidity > 0.40 and aspect < 4.0   # stricter
+i       is_wire = (aspect >= 4.0 or solidity < 0.25) and area > 50
         if is_wire and not is_ui and not is_blob:
             wire_mask[labels == i] = 1
 
@@ -309,7 +309,7 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
 
     # ── Use 1st and 99th percentile to match OEM behaviour ───────
     wire_t_max = float(np.percentile(wire_temps, 99))
-    wire_t_min = float(np.percentile(wire_temps, 1))
+    wire_t_min = float(np.percentile(wire_temps, 5))
     delta_t    = wire_t_max - wire_t_min
 
     if delta_t > 20:
