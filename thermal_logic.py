@@ -197,7 +197,7 @@ def map_pixels_to_temperature(image_bgr, scale, t_max, t_min):
 def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_img):
     h, w = temp_map.shape
     scale_range = t_max_scale - t_min_scale
-    mid_thresh  = t_min_scale + scale_range * 0.20
+    mid_thresh = (t_max_scale + t_min_scale) / 2
 
     roi_mask = np.zeros((h, w), dtype=np.uint8)
     roi_mask[40:h - 40, 160:w - 80] = 1
