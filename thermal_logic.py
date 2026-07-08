@@ -287,8 +287,8 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
         aspect   = max(bw, bh) / max(min(bw, bh), 1)
         solidity = area / max(bw * bh, 1)
         is_ui    = solidity > 0.50
-        is_blob = area > 800  and solidity > 0.40 and aspect < 4.0   # stricter
-i       is_wire = (aspect >= 4.0 or solidity < 0.25) and area > 50
+        is_blob = area > 800  and solidity > 0.40 and aspect < 4.0   
+        is_wire = (aspect >= 4.0 or solidity < 0.25) and area > 50
         if is_wire and not is_ui and not is_blob:
             wire_mask[labels == i] = 1
 
