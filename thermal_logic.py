@@ -196,49 +196,74 @@ def map_pixels_to_temperature(image_bgr, scale, t_max, t_min):
 
 def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_img):
     h, w = temp_map.shape
-    scale_range = t_max_scale - t_min_scale
-    mid_thresh = (t_max_scale + t_min_scale) / 2
+
+    # ── STEP 1: Find hottest wire pixels (tight threshold) ────────
+    # Start with top 30% to find the definite wire core
+    scale_range  = t_max_scale - t_min_scale
+    hot_thresh   = t_min_scale + scale_range * 0.70   # top 30%
 
     roi_mask = np.zeros((h, w), dtype=np.uint8)
-    roi_mask[40:h - 40, 160:w - 80] = 1
+    roi_mask[40:h-40, 160:w-80] = 1
 
-    above_mid = (
-        (temp_map >= mid_thresh) & (roi_mask == 1)
-    ).astype(np.uint8)
+    hot_mask = ((temp_map >= hot_thresh) & (roi_mask == 1)).astype(np.uint8)
 
+    # Clean up noise
+    kernel   = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    hot_mask = cv2.morphologyEx(hot_mask, cv2.MORPH_OPEN,  kernel)
+    hot_mask = cv2.morphologyEx(hot_mask, cv2.MORPH_CLOSE, kernel)
+
+    # ── STEP 2: Filter by shape to get wire skeleton ──────────────
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
-        above_mid, connectivity=8
+        hot_mask, connectivity=8
     )
 
-    wire_mask = np.zeros((h, w), dtype=np.uint8)
+    wire_core = np.zeros((h, w), dtype=np.uint8)
     for i in range(1, num_labels):
-        area = stats[i, cv2.CC_STAT_AREA]
-        bw   = stats[i, cv2.CC_STAT_WIDTH]
-        bh   = stats[i, cv2.CC_STAT_HEIGHT]
-        if area < 30:
+        area     = stats[i, cv2.CC_STAT_AREA]
+        bw       = stats[i, cv2.CC_STAT_WIDTH]
+        bh       = stats[i, cv2.CC_STAT_HEIGHT]
+        if area < 20:
             continue
         aspect   = max(bw, bh) / max(min(bw, bh), 1)
         solidity = area / max(bw * bh, 1)
-        is_ui    = solidity > 0.50
-        is_blob  = area > 1500 and solidity > 0.45 and aspect < 3.0
-        is_wire  = (aspect >= 3.0 or solidity < 0.35) and area > 30
-        if is_wire and not is_ui and not is_blob:
-            wire_mask[labels == i] = 1
+        is_wire  = (aspect >= 3.0 or solidity < 0.35) and area > 20
+        is_blob  = area > 2000 and solidity > 0.50 and aspect < 3.0
+        if is_wire and not is_blob:
+            wire_core[labels == i] = 1
 
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_OPEN,  kernel)
-    wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_CLOSE, kernel)
-
-    if wire_mask.sum() == 0:
+    if wire_core.sum() == 0:
         return {
             "wire_t_max": None,
             "wire_t_min": None,
             "delta_t"   : None,
             "alert"     : "No wire detected",
-            "wire_mask" : wire_mask
+            "wire_mask" : wire_core
         }
 
-    wire_temps = temp_map[wire_mask == 1]
+    # ── STEP 3: Expand wire mask to capture cooler wire pixels ────
+    # Dilate the wire core significantly — this captures the cooler
+    # ends of the wire that were below the hot threshold
+    kernel_expand = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    expanded_mask = cv2.dilate(wire_core, kernel_expand, iterations=2)
+
+    # Only keep pixels above a low background threshold
+    # This prevents sky/background from entering the expanded region
+    bg_thresh    = t_min_scale + scale_range * 0.15   # bottom 15% = background
+    warm_mask    = ((temp_map > bg_thresh) & (roi_mask == 1)).astype(np.uint8)
+    final_mask   = ((expanded_mask == 1) & (warm_mask == 1)).astype(np.uint8)
+
+    # ── STEP 4: Extract temperatures ──────────────────────────────
+    wire_temps = temp_map[final_mask == 1]
+
+    if len(wire_temps) == 0:
+        return {
+            "wire_t_max": None,
+            "wire_t_min": None,
+            "delta_t"   : None,
+            "alert"     : "No wire detected",
+            "wire_mask" : final_mask
+        }
+
     wire_t_max = float(np.percentile(wire_temps, 99))
     wire_t_min = float(np.percentile(wire_temps, 1))
     delta_t    = wire_t_max - wire_t_min
@@ -257,77 +282,8 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
         "wire_t_min": wire_t_min,
         "delta_t"   : delta_t,
         "alert"     : alert,
-        "wire_mask" : wire_mask
+        "wire_mask" : final_mask
     }
-# def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_img):
-#     h, w = temp_map.shape
-
-#     # ── Use bottom 20% as background threshold (not 50%) ─────────
-#     scale_range = t_max_scale - t_min_scale
-#     wire_thresh = t_min_scale + scale_range * 0.30
-
-#     roi_mask = np.zeros((h, w), dtype=np.uint8)
-#     roi_mask[40:h - 40, 160:w - 80] = 1
-
-#     above_thresh = (
-#         (temp_map >= wire_thresh) & (roi_mask == 1)
-#     ).astype(np.uint8)
-
-#     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
-#         above_thresh, connectivity=8
-#     )
-
-#     wire_mask = np.zeros((h, w), dtype=np.uint8)
-#     for i in range(1, num_labels):
-#         area     = stats[i, cv2.CC_STAT_AREA]
-#         bw       = stats[i, cv2.CC_STAT_WIDTH]
-#         bh       = stats[i, cv2.CC_STAT_HEIGHT]
-#         if area < 30:
-#             continue
-#         aspect   = max(bw, bh) / max(min(bw, bh), 1)
-#         solidity = area / max(bw * bh, 1)
-#         is_ui    = solidity > 0.50
-#         is_blob = area > 800  and solidity > 0.40 and aspect < 4.0   
-#         is_wire = (aspect >= 4.0 or solidity < 0.25) and area > 50
-#         if is_wire and not is_ui and not is_blob:
-#             wire_mask[labels == i] = 1
-
-#     kernel    = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-#     wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_OPEN,  kernel)
-#     wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_CLOSE, kernel)
-
-#     if wire_mask.sum() == 0:
-#         return {
-#             "wire_t_max": None,
-#             "wire_t_min": None,
-#             "delta_t"   : None,
-#             "alert"     : "No wire detected",
-#             "wire_mask" : wire_mask
-#         }
-
-#     wire_temps = temp_map[wire_mask == 1]
-
-#     # ── Use 1st and 99th percentile to match OEM behaviour ───────
-#     wire_t_max = float(np.percentile(wire_temps, 99))
-#     wire_t_min = float(np.percentile(wire_temps, 5))
-#     delta_t    = wire_t_max - wire_t_min
-
-#     if delta_t > 20:
-#         alert = "CRITICAL - Attend within 24 hrs"
-#     elif delta_t > 10:
-#         alert = "WARNING - Attend within 10 days"
-#     elif delta_t > 5:
-#         alert = "MONITOR - Attend within 1 month"
-#     else:
-#         alert = "NORMAL"
-
-#     return {
-#         "wire_t_max": wire_t_max,
-#         "wire_t_min": wire_t_min,
-#         "delta_t"   : delta_t,
-#         "alert"     : alert,
-#         "wire_mask" : wire_mask
-#     }
 
 
 # ═══════════════════════════════════════════════════════════════════
