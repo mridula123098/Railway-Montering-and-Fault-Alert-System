@@ -94,82 +94,26 @@ def has_minus_sign(crop_bgr):
         return False
 
     return minus_in(above) or minus_in(below)
-# def has_minus_sign(crop_bgr):
-#     gray        = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
-#     bright_rows = [r for r in range(gray.shape[0]) if gray[r].mean() > 100]
-
-#     if not bright_rows:
-#         return False
-
-#     box_start = bright_rows[0]
-#     box_end   = bright_rows[-1]
-#     above     = gray[:box_start, :]
-#     below     = gray[box_end + 1:, :]
-#     inside    = gray[box_start:box_end + 1, :]
-
-#     def minus_in_dark_region(region):
-#         """Minus sign = dark row with some bright pixels in mostly dark area."""
-#         if region.shape[0] == 0:
-#             return False
-#         for row in range(region.shape[0]):
-#             if region[row].mean() < 80 and region[row].max() > 50:
-#                 return True
-#         return False
-
-#     def minus_in_bright_region(region):
-#         if region.shape[0] < 3:
-#             return False
-#         row_means = np.array([region[r].mean() for r in range(region.shape[0])])
-#         overall_mean = row_means.mean()
-
-#         for i, m in enumerate(row_means):
-#             if m < overall_mean - 25 and m < 160:
-#                 return True
-#         return False
-#     try:
-#         import pytesseract
-#         from PIL import Image as PILImage
-#         big  = cv2.resize(crop_bgr,
-#                           (crop_bgr.shape[1] * 8, crop_bgr.shape[0] * 8),
-#                           interpolation=cv2.INTER_LANCZOS4)
-#         g    = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
-#         for thr in [150, 180, 120]:
-#             _, th = cv2.threshold(g, thr, 255, cv2.THRESH_BINARY)
-#             for psm in [7, 8, 13]:
-#                 cfg = f"--psm {psm} -c tessedit_char_whitelist=0123456789.-"
-#                 txt = pytesseract.image_to_string(
-#                     PILImage.fromarray(th), config=cfg
-#                 ).strip()
-#                 if "-" in txt:
-#                     return True
-#     except Exception:
-#         pass
-
-#     return (
-#         minus_in_dark_region(above)
-#         or minus_in_dark_region(below)
-#         or minus_in_bright_region(inside)
-#     )
 
 # ═══════════════════════════════════════════════════════════════════
 # LUT BUILDING
 # ═══════════════════════════════════════════════════════════════════
 
 def build_lut(scale, t_max, t_min, n_samples=256):
-    """Sample colors along the color bar and map to temperatures."""
-    sh, sw   = scale.shape[:2]
-    bar_start = int(sh * 0.25)
-    bar_end   = int(sh * 0.75)
+    sh, sw    = scale.shape[:2]
+    
+    # CHANGED: was 0.25/0.75, now 0.22/0.78 to capture full color range
+    bar_start = int(sh * 0.22)
+    bar_end   = int(sh * 0.78)
+    
     bar_strip = scale[bar_start:bar_end, :, :]
-
-    rows   = np.linspace(0, bar_strip.shape[0] - 1, n_samples, dtype=int)
-    colors = np.array(
+    rows      = np.linspace(0, bar_strip.shape[0] - 1, n_samples, dtype=int)
+    colors    = np.array(
         [bar_strip[r].mean(axis=0) for r in rows],
         dtype=np.float32
     )
     temps = np.linspace(t_max, t_min, n_samples, dtype=np.float32)
     return colors, temps
-
 
 def map_pixels_to_temperature(image_bgr, scale, t_max, t_min):
     """Map every pixel in the image to a temperature value via the LUT."""
