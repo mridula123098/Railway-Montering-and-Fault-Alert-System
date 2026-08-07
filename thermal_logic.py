@@ -89,12 +89,49 @@ def has_minus_sign(crop_bgr):
 # ═══════════════════════════════════════════════════════════════════
 
 def build_lut(scale, t_max, t_min, n_samples=256):
-    sh        = scale.shape[0]
-    bar_strip = scale[int(sh*0.22):int(sh*0.78), :, :]
-    rows      = np.linspace(0, bar_strip.shape[0]-1, n_samples, dtype=int)
-    colors    = np.array([bar_strip[r].mean(axis=0) for r in rows],
-                         dtype=np.float32)
-    temps     = np.linspace(t_max, t_min, n_samples, dtype=np.float32)
+    """
+    Sample colors along the color bar using grey box detection
+    to find exact bar boundaries. Falls back to fixed fractions if needed.
+    """
+    sh, sw = scale.shape[:2]
+
+    # ── Auto-detect bar boundaries using grey label boxes ─────────
+    # Grey boxes = bright pixels with low channel spread
+    grey_rows = []
+    for row in range(sh):
+        row_pixels = scale[row, :, :].astype(float)
+        brightness = row_pixels.mean(axis=1)
+        spread     = row_pixels.max(axis=1) - row_pixels.min(axis=1)
+        if np.sum((brightness > 150) & (spread < 30)) >= 3:
+            grey_rows.append(row)
+
+    bar_start = int(sh * 0.22)   # fallback
+    bar_end   = int(sh * 0.78)   # fallback
+
+    if grey_rows:
+        # Find clusters
+        clusters, cluster = [], [grey_rows[0]]
+        for r in grey_rows[1:]:
+            if r - cluster[-1] <= 5:
+                cluster.append(r)
+            else:
+                if len(cluster) >= 5:
+                    clusters.append(cluster)
+                cluster = [r]
+        if len(cluster) >= 5:
+            clusters.append(cluster)
+
+        if len(clusters) >= 2:
+            bar_start = clusters[0][-1]  + 3   # just after top grey box
+            bar_end   = clusters[-1][0]  - 3   # just before bottom grey box
+
+    bar_strip = scale[bar_start:bar_end, :, :]
+    rows      = np.linspace(0, bar_strip.shape[0] - 1, n_samples, dtype=int)
+    colors    = np.array(
+        [bar_strip[r].mean(axis=0) for r in rows],
+        dtype=np.float32
+    )
+    temps = np.linspace(t_max, t_min, n_samples, dtype=np.float32)
     return colors, temps
 
 
@@ -323,6 +360,24 @@ def process_image(image_path):
     temp_map = map_pixels_to_temperature(color_img, scale, t_max, t_min)
     result   = segment_wire_and_compute_delta_t(temp_map, t_max, t_min, color_img)
 
+    # ── Clamp wire temps to scale range ──────────────────────────
+    if result["wire_t_max"] is not None:
+        result["wire_t_max"] = float(np.clip(result["wire_t_max"], t_min, t_max))
+    if result["wire_t_min"] is not None:
+        result["wire_t_min"] = float(np.clip(result["wire_t_min"], t_min, t_max))
+    if result["wire_t_max"] is not None and result["wire_t_min"] is not None:
+        result["delta_t"] = result["wire_t_max"] - result["wire_t_min"]
+        # Update alert based on new delta
+        delta = result["delta_t"]
+        if delta > 20:
+            result["alert"] = "CRITICAL - Attend within 24 hrs"
+        elif delta > 10:
+            result["alert"] = "WARNING - Attend within 10 days"
+        elif delta > 5:
+            result["alert"] = "MONITOR - Attend within 1 month"
+        else:
+            result["alert"] = "NORMAL"
+
     return {
         "scale_t_max": t_max,
         "scale_t_min": t_min,
@@ -333,3 +388,4 @@ def process_image(image_path):
         "temp_map"   : temp_map,
         "wire_mask"  : result["wire_mask"]
     }
+    
