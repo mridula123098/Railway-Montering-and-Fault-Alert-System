@@ -21,6 +21,7 @@ import pandas as pd
 from datetime import datetime, timezone, timedelta
 from thermal_logic import process_image, get_station_from_filename
 from database import save_report
+from supabase import create_client
 # ═══════════════════════════════════════════════════════════════════
 # PAGE CONFIG
 # ═══════════════════════════════════════════════════════════════════
