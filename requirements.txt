@@ -7,4 +7,5 @@ pytesseract
 matplotlib
 supabase
 openpyxl
-streamlit-drawable-canvas
+streamlit==1.56.0
+streamlit-drawable-canvas==0.9.3
