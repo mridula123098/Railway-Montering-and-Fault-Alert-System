@@ -22,6 +22,9 @@ from datetime import datetime, timezone, timedelta
 from thermal_logic import process_image, get_station_from_filename
 from database import save_report
 from supabase import create_client
+import io
+from PIL import Image
+from streamlit_drawable_canvas import st_canvas
 # ═══════════════════════════════════════════════════════════════════
 # PAGE CONFIG
 # ═══════════════════════════════════════════════════════════════════
@@ -297,10 +300,36 @@ with center:
 
     if uploaded_file is not None:
 
-        # Image preview
-        st.image(uploaded_file,
-                 caption="Uploaded Thermal Image",
-                 use_container_width=True)
+        # Read uploaded image
+        uploaded_bytes = uploaded_file.getvalue()
+        
+        original_image = Image.open(
+            io.BytesIO(uploaded_bytes)
+        ).convert("RGB")
+        
+        # Resize image for display
+        original_w, original_h = original_image.size
+        
+        canvas_width = 800
+        canvas_height = int(
+            original_h * (canvas_width / original_w)
+        )
+        
+        display_image = original_image.resize(
+            (canvas_width, canvas_height)
+        )
+        
+        # Interactive image
+        canvas_result = st_canvas(
+            fill_color="rgba(0, 0, 139, 0.15)",
+            stroke_width=3,
+            stroke_color="#00008b",
+            background_image=display_image,
+            drawing_mode="rect",
+            height=canvas_height,
+            width=canvas_width,
+            key=f"junction_selector_{uploaded_file.name}",
+        )
 
         # Extract date & time from filename
         basename       = os.path.splitext(uploaded_file.name)[0]
