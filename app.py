@@ -25,6 +25,8 @@ from supabase import create_client
 import io
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
+from datetime import datetime
+from zoneinfo import ZoneInfo
 # ═══════════════════════════════════════════════════════════════════
 # PAGE CONFIG
 # ═══════════════════════════════════════════════════════════════════
@@ -518,27 +520,30 @@ if analyse_clicked and uploaded_file is not None:
 
     with center:
         with st.spinner("Analysing thermal image..."):
-            result = process_image(image_path)
+            result = process_image(
+                image_path,
+                selected_roi=selected_roi
+            )
             
-    status = result["status"]   
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
+        status = result["status"]   
     
-    if "CRITICAL" in status:
-        val_class = "val-red"
-        attend_msg = "To be attended in 1 day"
+        if "CRITICAL" in status:
+            val_class = "val-red"
+            attend_msg = "To be attended in 1 day"
+        
+        elif "WARNING" in status:
+            val_class = "val-yellow"
+            attend_msg = "To be attended in 10 days"
+        
+        elif "MONITOR" in status:
+            val_class = "val-yellow"
+            attend_msg = "To be attended in 30 days"
+        
+        else:
+            val_class = "val-green"
+            attend_msg = "Normal — No fault detected"
+
     
-    elif "WARNING" in status:
-        val_class = "val-yellow"
-        attend_msg = "To be attended in 10 days"
-    
-    elif "MONITOR" in status:
-        val_class = "val-yellow"
-        attend_msg = "To be attended in 30 days"
-    
-    else:
-        val_class = "val-green"
-        attend_msg = "Normal — No fault detected"
     # ── Save to Supabase ──────────────────────────────
     try:
         from zoneinfo import ZoneInfo
