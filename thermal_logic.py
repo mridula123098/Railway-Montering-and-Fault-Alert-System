@@ -397,16 +397,15 @@ def process_image(image_path, selected_roi=None):
         attend_in = "No action required"
 
     return {
-    "scale_t_max": t_max,
-    "scale_t_min": t_min,
-
-    # Selected junction + surrounding wire ROI
-    "wire_t_max": max_temp,
-    "wire_t_min": min_temp,
-
-    "delta_t": delta_t,
-    "alert": status,
-    "attend_in": attend_in,
-
-    "temp_map": temp_map
+        "scale_t_max": t_max,
+        "scale_t_min": t_min,
+    
+        "max_temp": max_temp,
+        "min_temp": min_temp,
+    
+        "delta": delta_t,
+        "status": status,
+        "attend_in": attend_in,
+    
+        "temp_map": temp_map
     }
