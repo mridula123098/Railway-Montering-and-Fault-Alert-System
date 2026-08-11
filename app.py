@@ -331,6 +331,46 @@ with center:
             key=f"junction_selector_{uploaded_file.name}",
         )
 
+        # ── Get selected junction ROI ─────────────────────────────
+        selected_roi = None
+        if canvas_result.json_data is not None:
+            objects = canvas_result.json_data.get("objects", [])
+            if len(objects) > 0:
+                rect = objects[-1]
+                if rect.get("type") == "rect":
+                    x_display = rect.get("left", 0)
+                    y_display = rect.get("top", 0)
+
+                    width_display = rect.get("width", 0)
+                    height_display = rect.get("height", 0)
+
+                    # Convert canvas coordinates
+                    # to original image coordinates
+                    scale_x = original_w / canvas_width
+                    scale_y = original_h / canvas_height
+
+                    x1 = int(x_display * scale_x)
+                    y1 = int(y_display * scale_y)
+                    x2 = int(
+                        (x_display + width_display) * scale_x
+                    )
+                    y2 = int(
+                        (y_display + height_display) * scale_y
+                    )
+
+                    # Keep coordinates within image
+                    x1 = max(0, min(x1, original_w - 1))
+                    y1 = max(0, min(y1, original_h - 1))
+                    x2 = max(x1 + 1, min(x2, original_w))
+                    y2 = max(y1 + 1, min(y2, original_h))
+
+                    selected_roi = (
+                        x1,
+                        y1,
+                        x2,
+                        y2
+                    )
+                    
         # Extract date & time from filename
         basename       = os.path.splitext(uploaded_file.name)[0]
         parts          = basename.split("-")
@@ -460,7 +500,10 @@ with center:
     with b2:
         analyse_clicked = st.button(
             "Analyse",
-            disabled=(uploaded_file is None),
+            disabled=(
+                uploaded_file is None
+                or selected_roi is None
+            ),
             use_container_width=True
         )
 # ═══════════════════════════════════════════════════════════════════
