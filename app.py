@@ -321,15 +321,20 @@ with center:
             (canvas_width, canvas_height)
         )
         
-        # Interactive image
+        st.image(
+            display_image,
+            caption="Draw a rectangle around the junction below",
+            use_container_width=True
+        )
+        
         canvas_result = st_canvas(
             fill_color="rgba(0, 0, 139, 0.15)",
             stroke_width=3,
             stroke_color="#00008b",
-            background_image=display_image,
             drawing_mode="rect",
             height=canvas_height,
             width=canvas_width,
+            background_color="rgba(255,255,255,0)",
             key=f"junction_selector_{uploaded_file.name}",
         )
 
