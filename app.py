@@ -22,6 +22,11 @@ from datetime import datetime, timezone, timedelta
 from thermal_logic import process_image, get_station_from_filename
 from database import save_report
 from supabase import create_client
+import io
+from PIL import Image
+from streamlit_drawable_canvas import st_canvas
+from datetime import datetime
+from zoneinfo import ZoneInfo
 # ═══════════════════════════════════════════════════════════════════
 # PAGE CONFIG
 # ═══════════════════════════════════════════════════════════════════
@@ -297,11 +302,76 @@ with center:
 
     if uploaded_file is not None:
 
-        # Image preview
-        st.image(uploaded_file,
-                 caption="Uploaded Thermal Image",
-                 use_container_width=True)
+        # Read uploaded image
+        uploaded_bytes = uploaded_file.getvalue()
+        
+        original_image = Image.open(
+            io.BytesIO(uploaded_bytes)
+        ).convert("RGB")
+        
+        # Resize image for display
+        original_w, original_h = original_image.size
+        
+        canvas_width = 800
+        canvas_height = int(
+            original_h * (canvas_width / original_w)
+        )
+        
+        display_image = original_image.resize(
+            (canvas_width, canvas_height)
+        )
+        
+        canvas_result = st_canvas(
+            fill_color="rgba(0, 0, 139, 0.15)",
+            stroke_width=3,
+            stroke_color="#00008b",
+            background_image=display_image,
+            drawing_mode="rect",
+            height=canvas_height,
+            width=canvas_width,
+            key=f"junction_selector_{uploaded_file.name}",
+        )
 
+        # ── Get selected junction ROI ─────────────────────────────
+        selected_roi = None
+        if canvas_result.json_data is not None:
+            objects = canvas_result.json_data.get("objects", [])
+            if len(objects) > 0:
+                rect = objects[-1]
+                if rect.get("type") == "rect":
+                    x_display = rect.get("left", 0)
+                    y_display = rect.get("top", 0)
+
+                    width_display = rect.get("width", 0)
+                    height_display = rect.get("height", 0)
+
+                    # Convert canvas coordinates
+                    # to original image coordinates
+                    scale_x = original_w / canvas_width
+                    scale_y = original_h / canvas_height
+
+                    x1 = int(x_display * scale_x)
+                    y1 = int(y_display * scale_y)
+                    x2 = int(
+                        (x_display + width_display) * scale_x
+                    )
+                    y2 = int(
+                        (y_display + height_display) * scale_y
+                    )
+
+                    # Keep coordinates within image
+                    x1 = max(0, min(x1, original_w - 1))
+                    y1 = max(0, min(y1, original_h - 1))
+                    x2 = max(x1 + 1, min(x2, original_w))
+                    y2 = max(y1 + 1, min(y2, original_h))
+
+                    selected_roi = (
+                        x1,
+                        y1,
+                        x2,
+                        y2
+                    )
+                    
         # Extract date & time from filename
         basename       = os.path.splitext(uploaded_file.name)[0]
         parts          = basename.split("-")
@@ -431,7 +501,10 @@ with center:
     with b2:
         analyse_clicked = st.button(
             "Analyse",
-            disabled=(uploaded_file is None),
+            disabled=(
+                uploaded_file is None
+                or selected_roi is None
+            ),
             use_container_width=True
         )
 # ═══════════════════════════════════════════════════════════════════
@@ -446,27 +519,30 @@ if analyse_clicked and uploaded_file is not None:
 
     with center:
         with st.spinner("Analysing thermal image..."):
-            result = process_image(image_path)
+            result = process_image(
+                image_path,
+                selected_roi=selected_roi
+            )
             
-    status = result["status"]   
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
+        status = result["status"]   
     
-    if "CRITICAL" in status:
-        val_class = "val-red"
-        attend_msg = "To be attended in 1 day"
+        if "CRITICAL" in status:
+            val_class = "val-red"
+            attend_msg = "To be attended in 1 day"
+        
+        elif "WARNING" in status:
+            val_class = "val-yellow"
+            attend_msg = "To be attended in 10 days"
+        
+        elif "MONITOR" in status:
+            val_class = "val-yellow"
+            attend_msg = "To be attended in 30 days"
+        
+        else:
+            val_class = "val-green"
+            attend_msg = "Normal — No fault detected"
+
     
-    elif "WARNING" in status:
-        val_class = "val-yellow"
-        attend_msg = "To be attended in 10 days"
-    
-    elif "MONITOR" in status:
-        val_class = "val-yellow"
-        attend_msg = "To be attended in 30 days"
-    
-    else:
-        val_class = "val-green"
-        attend_msg = "Normal — No fault detected"
     # ── Save to Supabase ──────────────────────────────
     try:
         from zoneinfo import ZoneInfo
