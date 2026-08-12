@@ -94,62 +94,6 @@ def has_minus_sign(crop_bgr):
         return False
 
     return minus_in(above) or minus_in(below)
-# def has_minus_sign(crop_bgr):
-#     gray        = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
-#     bright_rows = [r for r in range(gray.shape[0]) if gray[r].mean() > 100]
-
-#     if not bright_rows:
-#         return False
-
-#     box_start = bright_rows[0]
-#     box_end   = bright_rows[-1]
-#     above     = gray[:box_start, :]
-#     below     = gray[box_end + 1:, :]
-#     inside    = gray[box_start:box_end + 1, :]
-
-#     def minus_in_dark_region(region):
-#         """Minus sign = dark row with some bright pixels in mostly dark area."""
-#         if region.shape[0] == 0:
-#             return False
-#         for row in range(region.shape[0]):
-#             if region[row].mean() < 80 and region[row].max() > 50:
-#                 return True
-#         return False
-
-#     def minus_in_bright_region(region):
-#         if region.shape[0] < 3:
-#             return False
-#         row_means = np.array([region[r].mean() for r in range(region.shape[0])])
-#         overall_mean = row_means.mean()
-
-#         for i, m in enumerate(row_means):
-#             if m < overall_mean - 25 and m < 160:
-#                 return True
-#         return False
-#     try:
-#         import pytesseract
-#         from PIL import Image as PILImage
-#         big  = cv2.resize(crop_bgr,
-#                           (crop_bgr.shape[1] * 8, crop_bgr.shape[0] * 8),
-#                           interpolation=cv2.INTER_LANCZOS4)
-#         g    = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
-#         for thr in [150, 180, 120]:
-#             _, th = cv2.threshold(g, thr, 255, cv2.THRESH_BINARY)
-#             for psm in [7, 8, 13]:
-#                 cfg = f"--psm {psm} -c tessedit_char_whitelist=0123456789.-"
-#                 txt = pytesseract.image_to_string(
-#                     PILImage.fromarray(th), config=cfg
-#                 ).strip()
-#                 if "-" in txt:
-#                     return True
-#     except Exception:
-#         pass
-
-#     return (
-#         minus_in_dark_region(above)
-#         or minus_in_dark_region(below)
-#         or minus_in_bright_region(inside)
-#     )
 
 # ═══════════════════════════════════════════════════════════════════
 # LUT BUILDING
@@ -243,6 +187,7 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
     wire_t_min = float(np.percentile(wire_temps, 1))
     delta_t    = wire_t_max - wire_t_min
 
+    #threshold 
     if delta_t > 20:
         alert = "CRITICAL - Attend within 24 hrs"
     elif delta_t > 10:
@@ -259,76 +204,6 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
         "alert"     : alert,
         "wire_mask" : wire_mask
     }
-# def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_img):
-#     h, w = temp_map.shape
-
-#     # ── Use bottom 20% as background threshold (not 50%) ─────────
-#     scale_range = t_max_scale - t_min_scale
-#     wire_thresh = t_min_scale + scale_range * 0.30
-
-#     roi_mask = np.zeros((h, w), dtype=np.uint8)
-#     roi_mask[40:h - 40, 160:w - 80] = 1
-
-#     above_thresh = (
-#         (temp_map >= wire_thresh) & (roi_mask == 1)
-#     ).astype(np.uint8)
-
-#     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
-#         above_thresh, connectivity=8
-#     )
-
-#     wire_mask = np.zeros((h, w), dtype=np.uint8)
-#     for i in range(1, num_labels):
-#         area     = stats[i, cv2.CC_STAT_AREA]
-#         bw       = stats[i, cv2.CC_STAT_WIDTH]
-#         bh       = stats[i, cv2.CC_STAT_HEIGHT]
-#         if area < 30:
-#             continue
-#         aspect   = max(bw, bh) / max(min(bw, bh), 1)
-#         solidity = area / max(bw * bh, 1)
-#         is_ui    = solidity > 0.50
-#         is_blob = area > 800  and solidity > 0.40 and aspect < 4.0   
-#         is_wire = (aspect >= 4.0 or solidity < 0.25) and area > 50
-#         if is_wire and not is_ui and not is_blob:
-#             wire_mask[labels == i] = 1
-
-#     kernel    = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-#     wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_OPEN,  kernel)
-#     wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_CLOSE, kernel)
-
-#     if wire_mask.sum() == 0:
-#         return {
-#             "wire_t_max": None,
-#             "wire_t_min": None,
-#             "delta_t"   : None,
-#             "alert"     : "No wire detected",
-#             "wire_mask" : wire_mask
-#         }
-
-#     wire_temps = temp_map[wire_mask == 1]
-
-#     # ── Use 1st and 99th percentile to match OEM behaviour ───────
-#     wire_t_max = float(np.percentile(wire_temps, 99))
-#     wire_t_min = float(np.percentile(wire_temps, 5))
-#     delta_t    = wire_t_max - wire_t_min
-
-#     if delta_t > 20:
-#         alert = "CRITICAL - Attend within 24 hrs"
-#     elif delta_t > 10:
-#         alert = "WARNING - Attend within 10 days"
-#     elif delta_t > 5:
-#         alert = "MONITOR - Attend within 1 month"
-#     else:
-#         alert = "NORMAL"
-
-#     return {
-#         "wire_t_max": wire_t_max,
-#         "wire_t_min": wire_t_min,
-#         "delta_t"   : delta_t,
-#         "alert"     : alert,
-#         "wire_mask" : wire_mask
-#     }
-
 
 # ═══════════════════════════════════════════════════════════════════
 # STATION LOOKUP
@@ -442,14 +317,8 @@ def get_station_from_filename(image_filename, excel_path=None):
 # MAIN PIPELINE
 # ═══════════════════════════════════════════════════════════════════
 
-def process_image(image_path):
-    """
-    Full pipeline: load → extract scale → build temp map → segment wire → alert.
-
-    Returns dict:
-        scale_t_max, scale_t_min, max_temp, min_temp, delta, status,
-        temp_map, wire_mask
-    """
+def process_image(image_path, selected_roi=None):
+    
     color_img = cv2.imread(image_path)
     if color_img is None:
         raise ValueError(f"Cannot load image: {image_path}")
@@ -486,18 +355,57 @@ def process_image(image_path):
     # ── Temperature map ───────────────────────────────────────────
     temp_map = map_pixels_to_temperature(color_img, scale, t_max, t_min)
 
-    # ── Wire segmentation + Delta T ───────────────────────────────
-    result = segment_wire_and_compute_delta_t(
-        temp_map, t_max, t_min, color_img
+    # ── Selected Junction ROI ───────────────────────────────────────
+    if selected_roi is None:
+        raise ValueError(
+            "Please select the junction region before analysis."
+        )
+    
+    x1, y1, x2, y2 = selected_roi
+    selected_temp = temp_map[y1:y2, x1:x2]
+    
+    # Remove invalid temperature pixels
+    selected_temp = selected_temp[
+        np.isfinite(selected_temp)
+    ]
+    if selected_temp.size == 0:
+        raise ValueError(
+            "No valid temperature data found in selected region."
+        )
+    
+    # Robust temperature extraction
+    max_temp = float(
+        np.percentile(selected_temp, 99)
     )
+    min_temp = float(
+        np.percentile(selected_temp, 5)
+    )
+    delta_t = max_temp - min_temp
+
+    # ── Fault classification ────────────────────────────────────
+    if delta_t > 20:
+        status = "CRITICAL"
+        attend_in = "To be attended within 24 hrs"
+    elif delta_t > 10:
+        status = "WARNING"
+        attend_in = "To be attended within 10 days"
+    elif delta_t > 5:
+        status = "MONITOR"
+        attend_in = "To be attended within 1 month"
+    else:
+        status = "NORMAL"
+        attend_in = "No action required"
 
     return {
         "scale_t_max": t_max,
         "scale_t_min": t_min,
-        "max_temp"   : result["wire_t_max"],
-        "min_temp"   : result["wire_t_min"],
-        "delta"      : result["delta_t"],
-        "status"     : result["alert"],
-        "temp_map"   : temp_map,
-        "wire_mask"  : result["wire_mask"]
+    
+        "max_temp": max_temp,
+        "min_temp": min_temp,
+    
+        "delta": delta_t,
+        "status": status,
+        "attend_in": attend_in,
+    
+        "temp_map": temp_map
     }
