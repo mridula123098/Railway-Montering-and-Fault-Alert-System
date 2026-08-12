@@ -356,31 +356,43 @@ def process_image(image_path, selected_roi=None):
     temp_map = map_pixels_to_temperature(color_img, scale, t_max, t_min)
 
     # ── Selected Junction ROI ───────────────────────────────────────
-    if selected_roi is None:
-        raise ValueError(
-            "Please select the junction region before analysis."
-        )
-    
+    # ── Apply selected ROI ────────────────────────────────────────
     x1, y1, x2, y2 = selected_roi
-    selected_temp = temp_map[y1:y2, x1:x2]
-    
-    # Remove invalid temperature pixels
-    selected_temp = selected_temp[
-        np.isfinite(selected_temp)
-    ]
-    if selected_temp.size == 0:
-        raise ValueError(
-            "No valid temperature data found in selected region."
-        )
-    
-    # Robust temperature extraction
-    max_temp = float(
-        np.percentile(selected_temp, 99)
-    )
-    min_temp = float(
-        np.percentile(selected_temp, 5)
-    )
-    delta_t = max_temp - min_temp
+
+    # Crop both the temp map and color image to the ROI
+    roi_temp  = temp_map[y1:y2, x1:x2]
+    roi_color = color_img[y1:y2, x1:x2]
+
+    if roi_temp.size == 0:
+        raise ValueError("No valid temperature data in selected region.")
+
+    scale_range = t_max - t_min
+    mid_thresh  = t_min + scale_range * 0.50  # only keep warm pixels
+
+    # ── Keep only wire pixels (above 50% of scale) ────────────────
+    wire_mask = (roi_temp >= mid_thresh).astype(np.uint8)
+
+    # ── Morphological cleanup ─────────────────────────────────────
+    kernel    = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_OPEN,  kernel)
+    wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_CLOSE, kernel)
+
+    wire_pixels = roi_temp[wire_mask == 1]
+
+    if len(wire_pixels) == 0:
+        # Fallback: use all ROI pixels above 30% threshold
+        wire_pixels = roi_temp[roi_temp >= t_min + scale_range * 0.30]
+
+    if len(wire_pixels) == 0:
+        raise ValueError("No wire pixels found in selected region. "
+                         "Try selecting a larger area around the junction.")
+
+    # Clamp to scale range
+    wire_pixels = np.clip(wire_pixels, t_min, t_max)
+
+    max_temp = float(np.percentile(wire_pixels, 99))
+    min_temp = float(np.percentile(wire_pixels, 5))
+    delta_t  = max_temp - min_temp
 
     # ── Fault classification ────────────────────────────────────
     if delta_t > 20:
