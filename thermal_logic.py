@@ -393,7 +393,7 @@ def process_image(image_path, selected_roi=None):
     max_temp = float(np.percentile(wire_pixels, 99))
     min_temp = float(np.percentile(wire_pixels, 5))
     delta_t  = max_temp - min_temp
-
+    
     # ── Fault classification ────────────────────────────────────
     if delta_t > 20:
         status = "CRITICAL"
