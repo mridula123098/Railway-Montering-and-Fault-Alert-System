@@ -302,79 +302,44 @@ with center:
 
     if uploaded_file is not None:
 
-        # Read uploaded image
-        uploaded_bytes = uploaded_file.getvalue()
-        
-        original_image = Image.open(
-            io.BytesIO(uploaded_bytes)
-        ).convert("RGB")
-        
-        # Resize image for display
+        # Show the uploaded image
+        st.image(uploaded_file, use_container_width=True)
+
+        uploaded_bytes  = uploaded_file.getvalue()
+        original_image  = Image.open(io.BytesIO(uploaded_bytes)).convert("RGB")
         original_w, original_h = original_image.size
-        
-        canvas_width = 800
-        canvas_height = int(
-            original_h * (canvas_width / original_w)
-        )
-        
-        display_image = original_image.resize(
-            (canvas_width, canvas_height)
-        )
 
-        # Convert PIL Image to numpy array for canvas compatibility
+        # ── ROI selection using sliders ───────────────────────────
+        st.markdown("""
+        <div class="info-badge">
+            🎯 &nbsp; <b>Select junction region</b> using the sliders below
+            (drag to focus on the wire junction area)
+        </div>
+        """, unsafe_allow_html=True)
+
+        col_x, col_y = st.columns(2)
+        with col_x:
+            x1 = st.slider("Left",   0, original_w-2, int(original_w*0.2),  key="x1")
+            x2 = st.slider("Right",  1, original_w,   int(original_w*0.8),  key="x2")
+        with col_y:
+            y1 = st.slider("Top",    0, original_h-2, int(original_h*0.2),  key="y1")
+            y2 = st.slider("Bottom", 1, original_h,   int(original_h*0.8),  key="y2")
+
+        # Clamp
+        x1 = max(0, min(x1, original_w-1))
+        x2 = max(x1+1, min(x2, original_w))
+        y1 = max(0, min(y1, original_h-1))
+        y2 = max(y1+1, min(y2, original_h))
+
+        selected_roi = (x1, y1, x2, y2)
+
+        # Show preview with ROI highlighted
         import numpy as np
-        display_array = np.array(display_image)
-        
-        canvas_result = st_canvas(
-            fill_color="rgba(0, 0, 139, 0.15)",
-            stroke_width=3,
-            stroke_color="#00008b",
-            background_image=display_image,
-            drawing_mode="rect",
-            height=canvas_height,
-            width=canvas_width,
-            key=f"junction_selector_{uploaded_file.name}",
-        )
-
-        # ── Get selected junction ROI ─────────────────────────────
-        selected_roi = None
-        if canvas_result.json_data is not None:
-            objects = canvas_result.json_data.get("objects", [])
-            if len(objects) > 0:
-                rect = objects[-1]
-                if rect.get("type") == "rect":
-                    x_display = rect.get("left", 0)
-                    y_display = rect.get("top", 0)
-
-                    width_display = rect.get("width", 0)
-                    height_display = rect.get("height", 0)
-
-                    # Convert canvas coordinates
-                    # to original image coordinates
-                    scale_x = original_w / canvas_width
-                    scale_y = original_h / canvas_height
-
-                    x1 = int(x_display * scale_x)
-                    y1 = int(y_display * scale_y)
-                    x2 = int(
-                        (x_display + width_display) * scale_x
-                    )
-                    y2 = int(
-                        (y_display + height_display) * scale_y
-                    )
-
-                    # Keep coordinates within image
-                    x1 = max(0, min(x1, original_w - 1))
-                    y1 = max(0, min(y1, original_h - 1))
-                    x2 = max(x1 + 1, min(x2, original_w))
-                    y2 = max(y1 + 1, min(y2, original_h))
-
-                    selected_roi = (
-                        x1,
-                        y1,
-                        x2,
-                        y2
-                    )
+        import cv2
+        preview = np.array(original_image)
+        cv2.rectangle(preview, (x1, y1), (x2, y2), (0, 0, 139), 3)
+        st.image(preview, caption=f"Selected ROI: ({x1},{y1}) → ({x2},{y2})",
+                 use_container_width=True)
 
         if selected_roi is None:
             st.markdown("""
