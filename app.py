@@ -371,7 +371,20 @@ with center:
                         x2,
                         y2
                     )
-                    
+
+        if selected_roi is None:
+            st.markdown("""
+            <div class="info-badge" style="color:#888; text-align:center;">
+                 Draw a rectangle around the junction area above, then click Analyse
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="info-badge" style="color:#1a7a1a;">
+                 ROI selected: ({selected_roi[0]}, {selected_roi[1]}) → ({selected_roi[2]}, {selected_roi[3]})
+            </div>
+            """, unsafe_allow_html=True)
+        
         # Extract date & time from filename
         basename       = os.path.splitext(uploaded_file.name)[0]
         parts          = basename.split("-")
