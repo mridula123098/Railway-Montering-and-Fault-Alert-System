@@ -320,6 +320,10 @@ with center:
         display_image = original_image.resize(
             (canvas_width, canvas_height)
         )
+
+        # Convert PIL Image to numpy array for canvas compatibility
+        import numpy as np
+        display_array = np.array(display_image)
         
         canvas_result = st_canvas(
             fill_color="rgba(0, 0, 139, 0.15)",
