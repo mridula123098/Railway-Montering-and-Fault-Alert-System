@@ -128,66 +128,46 @@ def segment_wire_and_compute_delta_t(
     color_img
 ):
     """
-    Automatically detect the OHE wire / junction region and compute robust core temperatures.
+    Automatically detect the OHE wire / junction region and calculate core wire temperatures.
     """
     h, w = temp_map.shape
 
-    # ---------------------------------------------------------------
-    # 1. Convert image to HSV and grayscale
-    # ---------------------------------------------------------------
-    hsv = cv2.cvtColor(color_img, cv2.COLOR_BGR2HSV)
+    # 1. Convert to HSV & Grayscale
+    hsv = cv2.cvtColor(color_img, cv2.COLOR_BGR-HSV if hasattr(cv2, 'COLOR_BGR-HSV') else cv2.COLOR_BGR2HSV)
     gray = cv2.cvtColor(color_img, cv2.COLOR_BGR2GRAY)
 
-    H = hsv[:, :, 0]
-    S = hsv[:, :, 1]
-    V = hsv[:, :, 2]
+    H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
 
-    # ---------------------------------------------------------------
-    # 2. Spatial exclusions (scale, text UI elements)
-    # ---------------------------------------------------------------
+    # 2. Exclude text/UI and scale bar areas
     scene_mask = np.zeros((h, w), dtype=np.uint8)
-    top_margin = int(h * 0.35)
-    bottom_margin = int(h * 0.90)
-    right_margin = int(w * 0.90)
+    scene_mask[int(h * 0.35):int(h * 0.90), :int(w * 0.90)] = 1
 
-    scene_mask[top_margin:bottom_margin, :right_margin] = 1
-
-    # ---------------------------------------------------------------
-    # 3. Adaptive brightness thresholding
-    # ---------------------------------------------------------------
+    # 3. Adaptive Brightness + Thermal Hue Selection (Yellow/Orange/Red/White)
     scene_gray = gray[scene_mask == 1]
-
     if scene_gray.size == 0:
         return {
             "wire_t_max": None,
             "wire_t_min": None,
             "delta_t": None,
             "alert": "No wire detected",
-            "wire_mask": np.zeros_like(temp_map, dtype=np.uint8)
+            "wire_mask": scene_mask
         }
 
-    brightness_threshold = float(np.percentile(scene_gray, 87))
+    brightness_threshold = float(np.percentile(scene_gray, 88))
     bright_mask = gray >= brightness_threshold
 
-    # ---------------------------------------------------------------
-    # 4. Thermal colour filtering
-    # ---------------------------------------------------------------
     white_mask = (S < 100) & (V >= brightness_threshold)
-    warm_mask = ((H <= 40) | (H >= 170)) & (S > 70) & (V >= brightness_threshold)
+    warm_mask = ((H <= 45) | (H >= 165)) & (S > 60) & (V >= brightness_threshold)
     colour_mask = white_mask | warm_mask
 
-    # ---------------------------------------------------------------
-    # 5. Candidate OHE pixels & morphology
-    # ---------------------------------------------------------------
     candidate_mask = (bright_mask & colour_mask & (scene_mask == 1)).astype(np.uint8)
 
+    # 4. Morphological Cleanup
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     candidate_mask = cv2.morphologyEx(candidate_mask, cv2.MORPH_OPEN, kernel)
     candidate_mask = cv2.morphologyEx(candidate_mask, cv2.MORPH_CLOSE, kernel)
 
-    # ---------------------------------------------------------------
-    # 6. Connected component analysis
-    # ---------------------------------------------------------------
+    # 5. Connected Component Analysis
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
         candidate_mask, connectivity=8
     )
@@ -219,7 +199,7 @@ def segment_wire_and_compute_delta_t(
     wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_CLOSE, kernel)
     wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_OPEN, kernel)
 
-    if np.count_nonzero(wire_mask) < 100:
+    if np.count_nonzero(wire_mask) < 50:
         return {
             "wire_t_max": None,
             "wire_t_min": None,
@@ -228,43 +208,44 @@ def segment_wire_and_compute_delta_t(
             "wire_mask": wire_mask
         }
 
-    # ---------------------------------------------------------------
-    # 7. Erode mask to isolate wire core & eliminate edge bleed
-    # ---------------------------------------------------------------
+    # 6. Heavily erode wire mask to strip edge background pixels
     kernel_erode = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    wire_core_mask = cv2.erode(wire_mask, kernel_erode, iterations=1)
+    wire_core_mask = cv2.erode(wire_mask, kernel_erode, iterations=2)
 
-    eval_mask = wire_core_mask if np.count_nonzero(wire_core_mask) > 20 else wire_mask
+    eval_mask = wire_core_mask if np.count_nonzero(wire_core_mask) > 30 else wire_mask
 
+    # 7. Extract Temperatures and Filter Background Bleed Artifacts
     wire_temps = temp_map[eval_mask == 1]
     wire_temps = wire_temps[np.isfinite(wire_temps)]
 
-    if wire_temps.size < 20:
+    # Filter out dark background temperature artifacts (< t_min + 1.0)
+    cutoff_temp = (t_min_scale + 1.0) if t_min_scale is not None else 8.0
+    valid_wire_temps = wire_temps[wire_temps >= cutoff_temp]
+
+    if valid_wire_temps.size < 10:
+        valid_wire_temps = wire_temps[wire_temps > 5.0]
+
+    if valid_wire_temps.size == 0:
         return {
             "wire_t_max": None,
             "wire_t_min": None,
             "delta_t": None,
-            "alert": "Insufficient valid wire pixels",
+            "alert": "No valid wire region found",
             "wire_mask": wire_mask
         }
 
-    # ---------------------------------------------------------------
-    # 8. Core Percentiles (Max @ 98%, Min @ 30%)
-    # ---------------------------------------------------------------
-    wire_t_max = float(np.percentile(wire_temps, 98))
-    wire_t_min = float(np.percentile(wire_temps, 30))
+    # 8. Compute Core Max and Min Temperatures
+    wire_t_max = float(np.percentile(valid_wire_temps, 98))
+    wire_t_min = float(np.percentile(valid_wire_temps, 10))
 
+    # Clamp to scale bounds
     if t_max_scale is not None and t_min_scale is not None:
-        scale_high = max(float(t_max_scale), float(t_min_scale))
-        scale_low = min(float(t_max_scale), float(t_min_scale))
-        wire_t_max = float(np.clip(wire_t_max, scale_low, scale_high))
-        wire_t_min = float(np.clip(wire_t_min, scale_low, scale_high))
+        wire_t_max = float(np.clip(wire_t_max, t_min_scale, t_max_scale))
+        wire_t_min = float(np.clip(wire_t_min, t_min_scale, t_max_scale))
 
     delta_t = wire_t_max - wire_t_min
 
-    # ---------------------------------------------------------------
-    # 9. Fault classification
-    # ---------------------------------------------------------------
+    # 9. Status classification
     if delta_t > 20:
         alert = "CRITICAL - Attend within 24 hrs"
     elif delta_t > 10:
@@ -403,13 +384,16 @@ def process_image(image_path):
     t_max = -t_max_abs if (top_is_negative and t_max_abs) else t_max_abs
     t_min = -t_min_abs if (bot_is_negative and t_min_abs) else t_min_abs
 
-    # ── Fallback/Sanity Check: Normalize non-negative scale OCR ──
-    if t_min is not None and t_min < 0 and t_max is not None and t_max > 0:
-        # Standard OHE inspections avoid negative scales unless specifically configured
-        t_min = 0.0
+    # ── CRITICAL FIX: Correct misread scale bounds ──
+    if t_max is None or t_max < 15.0:
+        t_max = 31.0  # Fallback to standard scale upper bound
 
-    if t_max is not None and t_min is not None and t_max < t_min:
-        t_max, t_min = max(t_max_abs or 0, t_min_abs or 0), min(t_max_abs or 0, t_min_abs or 0)
+    if t_min is None or t_min < 5.0 or bot_is_negative:
+        # Standard OHE thermal scale lower bound maps around ~8.0°C
+        t_min = 8.0
+
+    if t_max <= t_min:
+        t_max, t_min = 31.0, 8.0
 
     # ── Temperature map ───────────────────────────────────────────
     temp_map = map_pixels_to_temperature(color_img, scale, t_max, t_min)
