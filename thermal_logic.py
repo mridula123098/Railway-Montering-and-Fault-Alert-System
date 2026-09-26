@@ -3,7 +3,7 @@
 thermal_logic.py
 ================
 Full pipeline for thermal image analysis of railway OHE jumper connections.
-Place in the same folder as app.py and station_log.xlsx.
+Directly maps wire region pixel colors to the image's temperature scale.
 """
 
 import cv2
@@ -11,7 +11,7 @@ import numpy as np
 import re
 import os
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from PIL import Image
 
 try:
@@ -19,7 +19,6 @@ try:
 except ImportError:
     raise ImportError("Run: pip install pytesseract")
 
-# Windows only — remove this line on Linux / Streamlit Cloud
 if os.name == "nt":
     pytesseract.pytesseract.tesseract_cmd = (
         r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -31,7 +30,7 @@ if os.name == "nt":
 # ═══════════════════════════════════════════════════════════════════
 
 def crop_to_temp(crop_bgr):
-    """OCR a grey label box and return the numeric value (absolute)."""
+    """OCR a grey label box on the scale bar and return the numeric value."""
     big = cv2.resize(
         crop_bgr,
         (crop_bgr.shape[1] * 8, crop_bgr.shape[0] * 8),
@@ -40,8 +39,7 @@ def crop_to_temp(crop_bgr):
     gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
 
     best = None
-    # Try multiple thresholds — different images need different values
-    for thr in [150, 180, 120]:
+    for thr in [150, 180, 120, 90]:
         _, th = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY)
         for psm in [7, 8, 13]:
             cfg  = f"--psm {psm} -c tessedit_char_whitelist=0123456789."
@@ -57,6 +55,7 @@ def crop_to_temp(crop_bgr):
 
 
 def has_minus_sign(crop_bgr):
+    """Detect if a negative sign is present in the scale label crop."""
     gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
     bright_rows = [r for r in range(gray.shape[0]) if gray[r].mean() > 100]
     if not bright_rows:
@@ -79,11 +78,11 @@ def has_minus_sign(crop_bgr):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# LUT BUILDING
+# LUT COLOR-TO-TEMPERATURE MAPPING
 # ═══════════════════════════════════════════════════════════════════
 
 def build_lut(scale, t_max, t_min, n_samples=256):
-    """Sample colors along the color bar and map to temperatures."""
+    """Sample exact RGB colors along the color scale bar and map to temperature range."""
     sh, sw   = scale.shape[:2]
     bar_start = int(sh * 0.25)
     bar_end   = int(sh * 0.75)
@@ -99,7 +98,7 @@ def build_lut(scale, t_max, t_min, n_samples=256):
 
 
 def map_pixels_to_temperature(image_bgr, scale, t_max, t_min):
-    """Map every pixel in the image to a temperature value via the LUT."""
+    """Map every pixel in the image directly to its corresponding temperature via LUT."""
     lut_colors, lut_temps = build_lut(scale, t_max, t_min)
     h, w   = image_bgr.shape[:2]
     pixels = image_bgr.reshape(-1, 3).astype(np.float32)
@@ -118,7 +117,7 @@ def map_pixels_to_temperature(image_bgr, scale, t_max, t_min):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# AUTOMATIC OHE WIRE / JUNCTION SEGMENTATION
+# DIRECT WIRE REGION OBSERVATION & ANALYSIS
 # ═══════════════════════════════════════════════════════════════════
 
 def segment_wire_and_compute_delta_t(
@@ -127,22 +126,18 @@ def segment_wire_and_compute_delta_t(
     t_min_scale,
     color_img
 ):
-    """
-    Automatically detect the OHE wire / junction region and calculate core wire temperatures.
-    """
+    """Segment the illuminated wire structures and extract true pixel temperature bounds."""
     h, w = temp_map.shape
 
-    # 1. Convert to HSV & Grayscale
-    hsv = cv2.cvtColor(color_img, cv2.COLOR_BGR-HSV if hasattr(cv2, 'COLOR_BGR-HSV') else cv2.COLOR_BGR2HSV)
+    hsv = cv2.cvtColor(color_img, cv2.COLOR_BGR2HSV)
     gray = cv2.cvtColor(color_img, cv2.COLOR_BGR2GRAY)
 
     H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
 
-    # 2. Exclude text/UI and scale bar areas
+    # Mask out UI margins
     scene_mask = np.zeros((h, w), dtype=np.uint8)
-    scene_mask[int(h * 0.35):int(h * 0.90), :int(w * 0.90)] = 1
+    scene_mask[int(h * 0.25):int(h * 0.90), :int(w * 0.88)] = 1
 
-    # 3. Adaptive Brightness + Thermal Hue Selection (Yellow/Orange/Red/White)
     scene_gray = gray[scene_mask == 1]
     if scene_gray.size == 0:
         return {
@@ -153,99 +148,62 @@ def segment_wire_and_compute_delta_t(
             "wire_mask": scene_mask
         }
 
-    brightness_threshold = float(np.percentile(scene_gray, 88))
+    # Extract wire regions based on thermal brightness and hue
+    brightness_threshold = float(np.percentile(scene_gray, 85))
     bright_mask = gray >= brightness_threshold
 
-    white_mask = (S < 100) & (V >= brightness_threshold)
-    warm_mask = ((H <= 45) | (H >= 165)) & (S > 60) & (V >= brightness_threshold)
+    white_mask = (S < 110) & (V >= brightness_threshold)
+    warm_mask = ((H <= 45) | (H >= 165)) & (S > 50) & (V >= brightness_threshold)
     colour_mask = white_mask | warm_mask
 
     candidate_mask = (bright_mask & colour_mask & (scene_mask == 1)).astype(np.uint8)
 
-    # 4. Morphological Cleanup
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     candidate_mask = cv2.morphologyEx(candidate_mask, cv2.MORPH_OPEN, kernel)
     candidate_mask = cv2.morphologyEx(candidate_mask, cv2.MORPH_CLOSE, kernel)
 
-    # 5. Connected Component Analysis
+    # Isolate wire connected components
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
         candidate_mask, connectivity=8
     )
 
-    candidates = []
+    wire_mask = np.zeros((h, w), dtype=np.uint8)
     for label in range(1, num_labels):
         ww = stats[label, cv2.CC_STAT_WIDTH]
         hh = stats[label, cv2.CC_STAT_HEIGHT]
         area = stats[label, cv2.CC_STAT_AREA]
 
-        if area < 50:
-            continue
+        if area >= 30 and (max(ww, hh) / max(min(ww, hh), 1)) >= 2.0:
+            wire_mask[labels == label] = 1
 
-        aspect_ratio = max(ww, hh) / max(min(ww, hh), 1)
-        elongated = aspect_ratio >= 2.5
-        meaningful_area = area >= 100
-
-        if elongated and meaningful_area:
-            candidates.append((label, area, aspect_ratio))
-
-    wire_mask = np.zeros((h, w), dtype=np.uint8)
-    if candidates:
-        candidates.sort(key=lambda item: item[1], reverse=True)
-        selected_label = candidates[0][0]
-        wire_mask[labels == selected_label] = 1
-    else:
+    if np.count_nonzero(wire_mask) == 0:
         wire_mask = candidate_mask.copy()
 
-    wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_CLOSE, kernel)
-    wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_OPEN, kernel)
-
-    if np.count_nonzero(wire_mask) < 50:
-        return {
-            "wire_t_max": None,
-            "wire_t_min": None,
-            "delta_t": None,
-            "alert": "No wire detected",
-            "wire_mask": wire_mask
-        }
-
-    # 6. Heavily erode wire mask to strip edge background pixels
+    # Erode edges to prevent background bleed
     kernel_erode = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    wire_core_mask = cv2.erode(wire_mask, kernel_erode, iterations=2)
+    wire_core_mask = cv2.erode(wire_mask, kernel_erode, iterations=1)
 
-    eval_mask = wire_core_mask if np.count_nonzero(wire_core_mask) > 30 else wire_mask
+    eval_mask = wire_core_mask if np.count_nonzero(wire_core_mask) > 20 else wire_mask
 
-    # 7. Extract Temperatures and Filter Background Bleed Artifacts
+    # Extract raw pixel temperatures strictly from observed wire pixels
     wire_temps = temp_map[eval_mask == 1]
     wire_temps = wire_temps[np.isfinite(wire_temps)]
 
-    # Filter out dark background temperature artifacts (< t_min + 1.0)
-    cutoff_temp = (t_min_scale + 1.0) if t_min_scale is not None else 8.0
-    valid_wire_temps = wire_temps[wire_temps >= cutoff_temp]
-
-    if valid_wire_temps.size < 10:
-        valid_wire_temps = wire_temps[wire_temps > 5.0]
-
-    if valid_wire_temps.size == 0:
+    if wire_temps.size == 0:
         return {
             "wire_t_max": None,
             "wire_t_min": None,
             "delta_t": None,
-            "alert": "No valid wire region found",
+            "alert": "No wire pixels found",
             "wire_mask": wire_mask
         }
 
-    # 8. Compute Core Max and Min Temperatures
-    wire_t_max = float(np.percentile(valid_wire_temps, 98))
-    wire_t_min = float(np.percentile(valid_wire_temps, 10))
-
-    # Clamp to scale bounds
-    if t_max_scale is not None and t_min_scale is not None:
-        wire_t_max = float(np.clip(wire_t_max, t_min_scale, t_max_scale))
-        wire_t_min = float(np.clip(wire_t_min, t_min_scale, t_max_scale))
+    # Direct 98th and 5th percentiles of observed wire pixels
+    wire_t_max = float(np.percentile(wire_temps, 98))
+    wire_t_min = float(np.percentile(wire_temps, 5))
 
     delta_t = wire_t_max - wire_t_min
 
-    # 9. Status classification
     if delta_t > 20:
         alert = "CRITICAL - Attend within 24 hrs"
     elif delta_t > 10:
@@ -288,10 +246,6 @@ def get_station_from_filename(image_filename, excel_path=None):
                     return col
             return None
 
-        ohe_col = find_col(df, ["ohe", "mast"])
-        if ohe_col:
-            df[ohe_col] = df[ohe_col].astype(str)
-
         col_section  = find_col(df, ["section", "station", "name"])
         col_ohe      = find_col(df, ["ohe", "mast"])
         col_datetime = find_col(df, ["date", "time", "datetime"])
@@ -301,12 +255,7 @@ def get_station_from_filename(image_filename, excel_path=None):
 
         def parse_dt(val):
             s = str(val).strip().replace(" UTC", "")
-            for fmt in [
-                "%Y-%m-%d %H:%M:%S",
-                "%d/%m/%Y %H:%M:%S",
-                "%m/%d/%Y %H:%M:%S",
-                "%Y-%m-%d",
-            ]:
+            for fmt in ["%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%m/%d/%Y %H:%M:%S", "%Y-%m-%d"]:
                 try:
                     return datetime.strptime(s, fmt)
                 except Exception:
@@ -331,16 +280,7 @@ def get_station_from_filename(image_filename, excel_path=None):
 
         if nearest["diff_secs"] <= 300:
             ohe_raw = nearest[col_ohe] if col_ohe else "N/A"
-            if hasattr(ohe_raw, 'strftime'):
-                ohe_str = f"{ohe_raw.day}/{ohe_raw.month}"
-            elif "00:00:00" in str(ohe_raw):
-                try:
-                    dt = datetime.strptime(str(ohe_raw).strip(), "%Y-%m-%d %H:%M:%S")
-                    ohe_str = f"{dt.day}/{dt.month}"
-                except Exception:
-                    ohe_str = str(ohe_raw).strip()
-            else:
-                ohe_str = str(ohe_raw).strip().replace(".0", "")
+            ohe_str = str(ohe_raw).strip().replace(".0", "")
 
             return {
                 "section"      : str(nearest[col_section]).strip(),
@@ -358,47 +298,33 @@ def get_station_from_filename(image_filename, excel_path=None):
 # ═══════════════════════════════════════════════════════════════════
 
 def process_image(image_path):
-    """
-    Full pipeline: load → extract scale → build temp map → segment wire → alert.
-    """
     color_img = cv2.imread(image_path)
     if color_img is None:
         raise ValueError(f"Cannot load image: {image_path}")
 
     h, w  = color_img.shape[:2]
 
-    # ── Scale strip (rightmost ~4% of width) ─────────────────────
+    # Crop rightmost scale bar region
     scale = color_img[:, int(w * 0.94):int(w * 0.98)]
     sh, sw = scale.shape[:2]
 
-    top    = scale[int(sh * 0.13):int(sh * 0.23), :]
-    bottom = scale[int(sh * 0.78):int(sh * 0.88), :]
+    top    = scale[int(sh * 0.12):int(sh * 0.24), :]
+    bottom = scale[int(sh * 0.76):int(sh * 0.88), :]
 
-    # ── OCR temperatures ─────────────────────────────────────────
+    # Read scale limits directly from image OCR
     t_max_abs = crop_to_temp(top)
     t_min_abs = crop_to_temp(bottom)
 
-    top_is_negative = has_minus_sign(top)
-    bot_is_negative = has_minus_sign(bottom)
+    top_is_neg = has_minus_sign(top)
+    bot_is_neg = has_minus_sign(bottom)
 
-    t_max = -t_max_abs if (top_is_negative and t_max_abs) else t_max_abs
-    t_min = -t_min_abs if (bot_is_negative and t_min_abs) else t_min_abs
+    t_max = -t_max_abs if (top_is_neg and t_max_abs is not None) else t_max_abs
+    t_min = -t_min_abs if (bot_is_neg and t_min_abs is not None) else t_min_abs
 
-    # ── CRITICAL FIX: Correct misread scale bounds ──
-    if t_max is None or t_max < 15.0:
-        t_max = 31.0  # Fallback to standard scale upper bound
-
-    if t_min is None or t_min < 5.0 or bot_is_negative:
-        # Standard OHE thermal scale lower bound maps around ~8.0°C
-        t_min = 8.0
-
-    if t_max <= t_min:
-        t_max, t_min = 31.0, 8.0
-
-    # ── Temperature map ───────────────────────────────────────────
+    # Map image colors directly to scale bounds
     temp_map = map_pixels_to_temperature(color_img, scale, t_max, t_min)
 
-    # ── Wire segmentation + Delta T ───────────────────────────────
+    # Compute temperatures purely from wire pixel colors
     result = segment_wire_and_compute_delta_t(
         temp_map, t_max, t_min, color_img
     )
