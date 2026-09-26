@@ -1,5 +1,4 @@
 """
-new
 AI-based OHE Wire Fault Detection System
 
 Dashboard Development:
@@ -23,11 +22,6 @@ from datetime import datetime, timezone, timedelta
 from thermal_logic import process_image, get_station_from_filename
 from database import save_report
 from supabase import create_client
-import io
-from PIL import Image
-from streamlit_drawable_canvas import st_canvas
-from datetime import datetime
-from zoneinfo import ZoneInfo
 # ═══════════════════════════════════════════════════════════════════
 # PAGE CONFIG
 # ═══════════════════════════════════════════════════════════════════
@@ -303,58 +297,11 @@ with center:
 
     if uploaded_file is not None:
 
-        # Show the uploaded image
-        st.image(uploaded_file, use_container_width=True)
-
-        uploaded_bytes  = uploaded_file.getvalue()
-        original_image  = Image.open(io.BytesIO(uploaded_bytes)).convert("RGB")
-        original_w, original_h = original_image.size
-
-        # ── ROI selection using sliders ───────────────────────────
-        st.markdown("""
-        <div class="info-badge">
-            🎯 &nbsp; <b>Select junction region</b> using the sliders below
-            (drag to focus on the wire junction area)
-        </div>
-        """, unsafe_allow_html=True)
-
-        col_x, col_y = st.columns(2)
-        with col_x:
-            x1 = st.slider("Left",   0, original_w-2, int(original_w*0.2),  key="x1")
-            x2 = st.slider("Right",  1, original_w,   int(original_w*0.8),  key="x2")
-        with col_y:
-            y1 = st.slider("Top",    0, original_h-2, int(original_h*0.2),  key="y1")
-            y2 = st.slider("Bottom", 1, original_h,   int(original_h*0.8),  key="y2")
-
-        # Clamp
-        x1 = max(0, min(x1, original_w-1))
-        x2 = max(x1+1, min(x2, original_w))
-        y1 = max(0, min(y1, original_h-1))
-        y2 = max(y1+1, min(y2, original_h))
-
-        selected_roi = (x1, y1, x2, y2)
-
-        # Show preview with ROI highlighted
-        import numpy as np
-        import cv2
-        preview = np.array(original_image)
-        cv2.rectangle(preview, (x1, y1), (x2, y2), (0, 0, 139), 3)
-        st.image(preview, caption=f"Selected ROI: ({x1},{y1}) → ({x2},{y2})",
+        # Image preview
+        st.image(uploaded_file,
+                 caption="Uploaded Thermal Image",
                  use_container_width=True)
 
-        if selected_roi is None:
-            st.markdown("""
-            <div class="info-badge" style="color:#888; text-align:center;">
-                 Draw a rectangle around the junction area above, then click Analyse
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="info-badge" style="color:#1a7a1a;">
-                 ROI selected: ({selected_roi[0]}, {selected_roi[1]}) → ({selected_roi[2]}, {selected_roi[3]})
-            </div>
-            """, unsafe_allow_html=True)
-        
         # Extract date & time from filename
         basename       = os.path.splitext(uploaded_file.name)[0]
         parts          = basename.split("-")
@@ -484,10 +431,7 @@ with center:
     with b2:
         analyse_clicked = st.button(
             "Analyse",
-            disabled=(
-                uploaded_file is None
-                or selected_roi is None
-            ),
+            disabled=(uploaded_file is None),
             use_container_width=True
         )
 # ═══════════════════════════════════════════════════════════════════
@@ -502,30 +446,27 @@ if analyse_clicked and uploaded_file is not None:
 
     with center:
         with st.spinner("Analysing thermal image..."):
-            result = process_image(
-                image_path,
-                selected_roi=selected_roi
-            )
+            result = process_image(image_path)
             
-        status = result["status"]   
+    status = result["status"]   
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
     
-        if "CRITICAL" in status:
-            val_class = "val-red"
-            attend_msg = "To be attended in 1 day"
-        
-        elif "WARNING" in status:
-            val_class = "val-yellow"
-            attend_msg = "To be attended in 10 days"
-        
-        elif "MONITOR" in status:
-            val_class = "val-yellow"
-            attend_msg = "To be attended in 30 days"
-        
-        else:
-            val_class = "val-green"
-            attend_msg = "Normal — No fault detected"
-
+    if "CRITICAL" in status:
+        val_class = "val-red"
+        attend_msg = "To be attended in 1 day"
     
+    elif "WARNING" in status:
+        val_class = "val-yellow"
+        attend_msg = "To be attended in 10 days"
+    
+    elif "MONITOR" in status:
+        val_class = "val-yellow"
+        attend_msg = "To be attended in 30 days"
+    
+    else:
+        val_class = "val-green"
+        attend_msg = "Normal — No fault detected"
     # ── Save to Supabase ──────────────────────────────
     try:
         from zoneinfo import ZoneInfo
