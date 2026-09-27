@@ -45,12 +45,10 @@ def parse_scale_val(crop_bgr):
             cfg = f"--psm {psm} -c tessedit_char_whitelist=-0123456789."
             txt = pytesseract.image_to_string(Image.fromarray(th), config=cfg).strip()
             
-            # Match numbers including negative sign
             matches = re.findall(r"(-?\d+\.?\d*)", txt)
             if matches:
                 try:
                     val = float(matches[0])
-                    # Ensure negative sign isn't lost if text has hyphen before digit
                     if "-" in txt and val > 0:
                         val = -val
                     best_val = val
@@ -115,7 +113,7 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
 
     H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
 
-    # UI exclusion mask (exclude left metadata and right scale bar)
+    # Mask out UI margins
     scene_mask = np.zeros((h, w), dtype=np.uint8)
     scene_mask[int(h * 0.12):int(h * 0.88), int(w * 0.02):int(w * 0.88)] = 1
 
@@ -129,11 +127,9 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
             "wire_mask": scene_mask
         }
 
-    # Identify illuminated wire structure via brightness and saturation
     p_thresh = float(np.percentile(scene_gray, 92))
     bright_mask = (gray >= p_thresh) & (scene_mask == 1)
 
-    # Core wire mask: high luminance, warm/white colors
     white_core = (S < 90) & (V > 180)
     warm_core = ((H <= 35) | (H >= 160)) & (V > 150)
     wire_candidate = (bright_mask | white_core | warm_core) & (scene_mask == 1)
@@ -141,7 +137,11 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     cleaned_mask = cv2.morphologyEx(wire_candidate.astype(np.uint8), cv2.MORPH_OPEN, kernel)
 
-    wire_temps = temp_map[cleaned_mask == 1]
+    # Erode to sample strict core pixels only
+    wire_core_mask = cv2.erode(cleaned_mask, kernel, iterations=1)
+    eval_mask = wire_core_mask if np.count_nonzero(wire_core_mask) > 20 else cleaned_mask
+
+    wire_temps = temp_map[eval_mask == 1]
     wire_temps = wire_temps[np.isfinite(wire_temps)]
 
     if wire_temps.size == 0:
@@ -153,14 +153,10 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
             "wire_mask": cleaned_mask
         }
 
-    # Hottest point along the illuminated core (Hotspot / P1)
-    wire_t_max = float(np.percentile(wire_temps, 98.5))
+    # Extract bounds strictly from wire core
+    wire_t_max = float(np.percentile(wire_temps, 98.0))
+    wire_t_min = float(np.percentile(wire_temps, 25.0))
 
-    # Minimum temperature of the wire conductor (Cooler wire section / P2)
-    # Sample lower percentile of the wire region, ignoring cold background
-    wire_t_min = float(np.percentile(wire_temps, 12))
-
-    # Ensure max >= min
     if wire_t_max < wire_t_min:
         wire_t_max, wire_t_min = wire_t_min, wire_t_max
 
@@ -185,6 +181,78 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
 
 
 # ═══════════════════════════════════════════════════════════════════
+# STATION LOOKUP
+# ═══════════════════════════════════════════════════════════════════
+
+def get_station_from_filename(image_filename, excel_path=None):
+    """Match timestamp in image filename to nearest OHE mast/station in reference sheet."""
+    try:
+        basename = os.path.splitext(os.path.basename(image_filename))[0]
+        parts    = basename.split("-")
+        if len(parts) < 2:
+            return None
+        time_str = parts[1]
+        img_time = datetime.strptime(time_str, "%H%M%S").time()
+
+        SHEET_ID = "13W4XDKVK384EfZ5rxtccApLsMkca_Jz22qzz-uyrHf8"
+        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
+        df = pd.read_csv(url)
+
+        def find_col(df, keywords):
+            for col in df.columns:
+                col_lower = str(col).lower()
+                if any(kw in col_lower for kw in keywords):
+                    return col
+            return None
+
+        col_section  = find_col(df, ["section", "station", "name"])
+        col_ohe      = find_col(df, ["ohe", "mast"])
+        col_datetime = find_col(df, ["date", "time", "datetime"])
+
+        if not col_datetime or not col_section:
+            return None
+
+        def parse_dt(val):
+            s = str(val).strip().replace(" UTC", "")
+            for fmt in ["%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%m/%d/%Y %H:%M:%S", "%Y-%m-%d"]:
+                try:
+                    return datetime.strptime(s, fmt)
+                except Exception:
+                    continue
+            return None
+
+        df["parsed_dt"] = df[col_datetime].apply(parse_dt)
+        df = df.dropna(subset=["parsed_dt"])
+
+        if df.empty:
+            return None
+
+        def to_secs(t):
+            return t.hour * 3600 + t.minute * 60 + t.second
+
+        img_secs        = to_secs(img_time)
+        df["diff_secs"] = df["parsed_dt"].apply(
+            lambda dt: abs(to_secs(dt.time()) - img_secs)
+        )
+
+        nearest = df.loc[df["diff_secs"].idxmin()]
+
+        if nearest["diff_secs"] <= 300:
+            ohe_raw = nearest[col_ohe] if col_ohe else "N/A"
+            ohe_str = str(ohe_raw).strip().replace(".0", "")
+
+            return {
+                "section"      : str(nearest[col_section]).strip(),
+                "ohe_mast"     : ohe_str,
+                "matched_time" : nearest["parsed_dt"].strftime("%H:%M:%S"),
+                "diff_seconds" : int(nearest["diff_secs"])
+            }
+    except Exception as e:
+        print(f"[station lookup error] {e}")
+        return None
+
+
+# ═══════════════════════════════════════════════════════════════════
 # MAIN PIPELINE
 # ═══════════════════════════════════════════════════════════════════
 
@@ -195,7 +263,6 @@ def process_image(image_path):
 
     h, w = color_img.shape[:2]
 
-    # Extract rightmost scale bar and crop top/bottom value overlays
     scale = color_img[:, int(w * 0.90):int(w * 0.98)]
     sh, sw = scale.shape[:2]
 
@@ -205,19 +272,13 @@ def process_image(image_path):
     t_max = parse_scale_val(top_crop)
     t_min = parse_scale_val(bottom_crop)
 
-    # Fallbacks strictly if OCR is completely unreadable
-    if t_max is None:
-        t_max = 35.0
-    if t_min is None:
-        t_min = -26.0
+    if t_max is None or t_min is None:
+        raise ValueError("Could not OCR temperature scale values from thermal image.")
 
     if t_max < t_min:
         t_max, t_min = t_min, t_max
 
-    # Map image colors directly to scale bounds
     temp_map = map_pixels_to_temperature(color_img, scale, t_max, t_min)
-
-    # Compute temperatures purely from wire pixel colors
     result = segment_wire_and_compute_delta_t(temp_map, t_max, t_min, color_img)
 
     return {
