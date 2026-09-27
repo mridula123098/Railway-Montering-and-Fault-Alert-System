@@ -30,7 +30,7 @@ if os.name == "nt":
 # ═══════════════════════════════════════════════════════════════════
 
 def crop_to_temp(crop_bgr):
-    """OCR a grey label box on the scale bar and return the numeric value."""
+    """OCR a label box on the scale bar and return the numeric value."""
     big = cv2.resize(
         crop_bgr,
         (crop_bgr.shape[1] * 8, crop_bgr.shape[0] * 8),
@@ -52,29 +52,6 @@ def crop_to_temp(crop_bgr):
         if best is not None:
             break  
     return best
-
-
-def has_minus_sign(crop_bgr):
-    """Detect if a negative sign is present in the scale label crop."""
-    gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
-    bright_rows = [r for r in range(gray.shape[0]) if gray[r].mean() > 100]
-    if not bright_rows:
-        return False
-
-    box_start = bright_rows[0]
-    box_end   = bright_rows[-1]
-    above     = gray[:box_start, :]
-    below     = gray[box_end + 1:, :]
-
-    def minus_in(region):
-        if region.shape[0] == 0:
-            return False
-        for row in range(region.shape[0]):
-            if region[row].mean() < 80 and region[row].max() > 50:
-                return True
-        return False
-
-    return minus_in(above) or minus_in(below)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -148,7 +125,7 @@ def segment_wire_and_compute_delta_t(
             "wire_mask": scene_mask
         }
 
-    # Extract wire regions based on thermal brightness and hue
+    # Extract illuminated wire pixels
     brightness_threshold = float(np.percentile(scene_gray, 85))
     bright_mask = gray >= brightness_threshold
 
@@ -162,7 +139,7 @@ def segment_wire_and_compute_delta_t(
     candidate_mask = cv2.morphologyEx(candidate_mask, cv2.MORPH_OPEN, kernel)
     candidate_mask = cv2.morphologyEx(candidate_mask, cv2.MORPH_CLOSE, kernel)
 
-    # Isolate wire connected components
+    # Isolate wire components
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
         candidate_mask, connectivity=8
     )
@@ -179,13 +156,13 @@ def segment_wire_and_compute_delta_t(
     if np.count_nonzero(wire_mask) == 0:
         wire_mask = candidate_mask.copy()
 
-    # Erode edges to prevent background bleed
+    # Erode edges to prevent dark background bleed
     kernel_erode = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     wire_core_mask = cv2.erode(wire_mask, kernel_erode, iterations=1)
 
     eval_mask = wire_core_mask if np.count_nonzero(wire_core_mask) > 20 else wire_mask
 
-    # Extract raw pixel temperatures strictly from observed wire pixels
+    # Extract temperatures strictly from the segmented wire core
     wire_temps = temp_map[eval_mask == 1]
     wire_temps = wire_temps[np.isfinite(wire_temps)]
 
@@ -198,9 +175,16 @@ def segment_wire_and_compute_delta_t(
             "wire_mask": wire_mask
         }
 
-    # Direct 98th and 5th percentiles of observed wire pixels
+    # Temperature max (hottest wire segment / hotspot)
     wire_t_max = float(np.percentile(wire_temps, 98))
-    wire_t_min = float(np.percentile(wire_temps, 5))
+
+    # Temperature min (coolest conductor segment, excluding non-wire background)
+    # Filter out values below the scale bottom minimum
+    valid_temps = wire_temps[wire_temps >= t_min_scale]
+    if valid_temps.size > 0:
+        wire_t_min = float(np.percentile(valid_temps, 20))
+    else:
+        wire_t_min = float(np.percentile(wire_temps, 50))
 
     delta_t = wire_t_max - wire_t_min
 
@@ -311,15 +295,14 @@ def process_image(image_path):
     top    = scale[int(sh * 0.12):int(sh * 0.24), :]
     bottom = scale[int(sh * 0.76):int(sh * 0.88), :]
 
-    # Read scale limits directly from image OCR
-    t_max_abs = crop_to_temp(top)
-    t_min_abs = crop_to_temp(bottom)
+    # Read scale limits directly from image OCR (absolute values)
+    t_max = crop_to_temp(top)
+    t_min = crop_to_temp(bottom)
 
-    top_is_neg = has_minus_sign(top)
-    bot_is_neg = has_minus_sign(bottom)
-
-    t_max = -t_max_abs if (top_is_neg and t_max_abs is not None) else t_max_abs
-    t_min = -t_min_abs if (bot_is_neg and t_min_abs is not None) else t_min_abs
+    # If OCR returns values in whole integers (e.g. 21 instead of 2.1 or vice versa)
+    if t_max is not None and t_min is not None:
+        if t_max < t_min:
+            t_max, t_min = t_min, t_max
 
     # Map image colors directly to scale bounds
     temp_map = map_pixels_to_temperature(color_img, scale, t_max, t_min)
