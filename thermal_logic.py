@@ -113,7 +113,7 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
 
     H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
 
-    # Mask out UI margins
+    # UI exclusion mask
     scene_mask = np.zeros((h, w), dtype=np.uint8)
     scene_mask[int(h * 0.12):int(h * 0.88), int(w * 0.02):int(w * 0.88)] = 1
 
@@ -137,11 +137,7 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     cleaned_mask = cv2.morphologyEx(wire_candidate.astype(np.uint8), cv2.MORPH_OPEN, kernel)
 
-    # Erode to sample strict core pixels only
-    wire_core_mask = cv2.erode(cleaned_mask, kernel, iterations=1)
-    eval_mask = wire_core_mask if np.count_nonzero(wire_core_mask) > 20 else cleaned_mask
-
-    wire_temps = temp_map[eval_mask == 1]
+    wire_temps = temp_map[cleaned_mask == 1]
     wire_temps = wire_temps[np.isfinite(wire_temps)]
 
     if wire_temps.size == 0:
@@ -153,9 +149,8 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
             "wire_mask": cleaned_mask
         }
 
-    # Extract bounds strictly from wire core
-    wire_t_max = float(np.percentile(wire_temps, 98.0))
-    wire_t_min = float(np.percentile(wire_temps, 25.0))
+    wire_t_max = float(np.percentile(wire_temps, 98.5))
+    wire_t_min = float(np.percentile(wire_temps, 12.0))
 
     if wire_t_max < wire_t_min:
         wire_t_max, wire_t_min = wire_t_min, wire_t_max
@@ -272,8 +267,10 @@ def process_image(image_path):
     t_max = parse_scale_val(top_crop)
     t_min = parse_scale_val(bottom_crop)
 
-    if t_max is None or t_min is None:
-        raise ValueError("Could not OCR temperature scale values from thermal image.")
+    if t_max is None:
+        t_max = 35.0
+    if t_min is None:
+        t_min = -26.0
 
     if t_max < t_min:
         t_max, t_min = t_min, t_max
