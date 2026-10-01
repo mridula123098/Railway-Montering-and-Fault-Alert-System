@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """
-new
 thermal_logic.py
 ================
 Full pipeline for thermal image analysis of railway OHE jumper connections.
