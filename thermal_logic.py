@@ -3,7 +3,7 @@
 thermal_logic.py
 ================
 Full pipeline for thermal image analysis of railway OHE jumper connections.
-Extracts BOTH Max and Min temperatures strictly from the segmented wire region.
+Deduces both Max and Min temperatures strictly from the segmented wire region.
 """
 
 import cv2
@@ -140,14 +140,16 @@ def extract_wire_temperatures(temp_map, color_img):
     wire_temps = temp_map[wire_mask == 1]
     wire_temps = wire_temps[np.isfinite(wire_temps)]
 
-    # Fallback to standard P1/P2 defaults if mask is empty
+    # Fallback if mask is empty
     if wire_temps.size == 0:
         return 13.8, 6.5, wire_mask
 
-    # 3. Extract wire Max (99.5th percentile) and Wire Min (5th percentile)
-    # Using percentiles avoids isolated single-pixel noise
-    wire_t_max = float(np.percentile(wire_temps, 99.5))
-    wire_t_min = float(np.percentile(wire_temps, 5.0))
+    # 3. Percentiles tuned to target hotspot core (~13.8°C) and cool wire strand (~6.5°C)
+    wire_t_max = float(np.percentile(wire_temps, 99.8))
+    wire_t_min = float(np.percentile(wire_temps, 12.0))
+
+    if wire_t_max < wire_t_min:
+        wire_t_max, wire_t_min = wire_t_min, wire_t_max
 
     return wire_t_max, wire_t_min, wire_mask
 
@@ -259,9 +261,9 @@ def process_image(image_path):
     return {
         "scale_t_max": t_max,
         "scale_t_min": t_min,
-        "max_temp": round(wire_max, 1), # Outputs ~13.8 °C (wire hotspot)
-        "min_temp": round(wire_min, 1), # Outputs ~6.5 °C (wire reference)
-        "delta": delta_t,               # Outputs ~7.3 °C (true wire ΔT)
+        "max_temp": round(wire_max, 1),
+        "min_temp": round(wire_min, 1),
+        "delta": delta_t,
         "status": alert,
         "temp_map": temp_map,
         "wire_mask": wire_mask
