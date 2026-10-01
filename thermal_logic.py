@@ -3,7 +3,7 @@
 thermal_logic.py
 ================
 Full pipeline for thermal image analysis of railway OHE jumper connections.
-Place in the same folder as app.py and station_log.xlsx.
+Directly maps wire region pixel colors to the image's temperature scale.
 """
 
 import cv2
@@ -11,7 +11,7 @@ import numpy as np
 import re
 import os
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from PIL import Image
 
 try:
@@ -19,7 +19,6 @@ try:
 except ImportError:
     raise ImportError("Run: pip install pytesseract")
 
-# Windows only — remove this line on Linux / Streamlit Cloud
 if os.name == "nt":
     pytesseract.pytesseract.tesseract_cmd = (
         r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -30,164 +29,115 @@ if os.name == "nt":
 # OCR HELPERS
 # ═══════════════════════════════════════════════════════════════════
 
-# def crop_to_temp(crop_bgr):
-#     """OCR a grey label box and return the numeric value (absolute)."""
-#     big = cv2.resize(
-#         crop_bgr,
-#         (crop_bgr.shape[1] * 8, crop_bgr.shape[0] * 8),
-#         interpolation=cv2.INTER_LANCZOS4
-#     )
-#     gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
-#     _, th = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
-
-#     best = None
-#     for psm in [7, 8, 13]:
-#         cfg = f"--psm {psm} -c tessedit_char_whitelist=0123456789."
-#         txt = pytesseract.image_to_string(Image.fromarray(th), config=cfg).strip()
-#         nums = re.findall(r"\d+\.?\d*", txt)
-#         if nums and best is None:
-#             best = float(nums[0])
-#     return best
-
-def crop_to_temp(crop_bgr):
-    """OCR a grey label box and return the numeric value (absolute)."""
-    big = cv2.resize(
-        crop_bgr,
-        (crop_bgr.shape[1] * 8, crop_bgr.shape[0] * 8),
-        interpolation=cv2.INTER_LANCZOS4
-    )
+def clean_ocr_text(crop_bgr, whitelist="-0123456789.*P12"):
+    """Enhanced OCR pre-processing for numeric and overlay extraction."""
+    h, w = crop_bgr.shape[:2]
+    big = cv2.resize(crop_bgr, (w * 5, h * 5), interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
 
-    best = None
-    # Try multiple thresholds — different images need different values
-    for thr in [150, 180, 120]:
+    texts = []
+    for thr in [120, 160, 200, 80]:
         _, th = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY)
-        for psm in [7, 8, 13]:
-            cfg  = f"--psm {psm} -c tessedit_char_whitelist=0123456789."
-            txt  = pytesseract.image_to_string(
-                Image.fromarray(th), config=cfg
-            ).strip()
-            nums = re.findall(r"\d+\.?\d*", txt)
-            if nums and best is None:
-                best = float(nums[0])
-        if best is not None:
-            break  
-    return best
+        for psm in [6, 11, 3]:
+            cfg = f"--psm {psm} -c tessedit_char_whitelist={whitelist}"
+            txt = pytesseract.image_to_string(Image.fromarray(th), config=cfg).strip()
+            if txt:
+                texts.append(txt)
+    return " ".join(texts)
 
-def has_minus_sign(crop_bgr):
-    gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
-    bright_rows = [r for r in range(gray.shape[0]) if gray[r].mean() > 100]
-    if not bright_rows:
-        return False
 
-    box_start = bright_rows[0]
-    box_end   = bright_rows[-1]
-    above     = gray[:box_start, :]
-    below     = gray[box_end + 1:, :]
+def parse_scale_bounds(img_bgr):
+    """Extract top (max) and bottom (min) scale values on the right edge."""
+    h, w = img_bgr.shape[:2]
 
-    def minus_in(region):
-        if region.shape[0] == 0:
-            return False
-        for row in range(region.shape[0]):
-            if region[row].mean() < 80 and region[row].max() > 50:
-                return True
-        return False
+    top_crop = img_bgr[int(h * 0.12):int(h * 0.25), int(w * 0.88):w]
+    bot_crop = img_bgr[int(h * 0.72):int(h * 0.88), int(w * 0.88):w]
 
-    return minus_in(above) or minus_in(below)
+    txt_top = clean_ocr_text(top_crop, whitelist="-0123456789.")
+    txt_bot = clean_ocr_text(bot_crop, whitelist="-0123456789.")
+
+    m_top = re.findall(r"(-?\d+\.?\d*)", txt_top)
+    m_bot = re.findall(r"(-?\d+\.?\d*)", txt_bot)
+
+    t_max = float(m_top[0]) if m_top else 17.0
+    t_min = float(m_bot[0]) if m_bot else -21.0
+
+    if t_max < t_min:
+        t_max, t_min = t_min, t_max
+
+    return t_max, t_min
+
 
 # ═══════════════════════════════════════════════════════════════════
-# LUT BUILDING
+# COLOR MAP & TEMPERATURE ANALYSIS
 # ═══════════════════════════════════════════════════════════════════
 
 def build_lut(scale, t_max, t_min, n_samples=256):
-    """Sample colors along the color bar and map to temperatures."""
-    sh, sw   = scale.shape[:2]
-    bar_start = int(sh * 0.25)
-    bar_end   = int(sh * 0.75)
-    bar_strip = scale[bar_start:bar_end, :, :]
+    """Map color bar pixels to temperature range accurately."""
+    sh = scale.shape[0]
+    bar_strip = scale[int(sh * 0.25):int(sh * 0.75), :, :]
 
-    rows   = np.linspace(0, bar_strip.shape[0] - 1, n_samples, dtype=int)
-    colors = np.array(
-        [bar_strip[r].mean(axis=0) for r in rows],
-        dtype=np.float32
-    )
+    rows = np.linspace(0, bar_strip.shape[0] - 1, n_samples, dtype=int)
+    colors = np.array([bar_strip[r].mean(axis=0) for r in rows], dtype=np.float32)
     temps = np.linspace(t_max, t_min, n_samples, dtype=np.float32)
     return colors, temps
 
 
 def map_pixels_to_temperature(image_bgr, scale, t_max, t_min):
-    """Map every pixel in the image to a temperature value via the LUT."""
     lut_colors, lut_temps = build_lut(scale, t_max, t_min)
-    h, w   = image_bgr.shape[:2]
+    h, w = image_bgr.shape[:2]
     pixels = image_bgr.reshape(-1, 3).astype(np.float32)
 
-    temp_flat  = np.zeros(pixels.shape[0], dtype=np.float32)
+    temp_flat = np.zeros(pixels.shape[0], dtype=np.float32)
     batch_size = 10000
 
     for i in range(0, pixels.shape[0], batch_size):
-        batch   = pixels[i:i + batch_size]
-        diff    = batch[:, None, :] - lut_colors[None, :, :]
-        dist    = np.sum(diff ** 2, axis=2)
+        batch = pixels[i:i + batch_size]
+        diff = batch[:, None, :] - lut_colors[None, :, :]
+        dist = np.sum(diff ** 2, axis=2)
         nearest = np.argmin(dist, axis=1)
         temp_flat[i:i + batch_size] = lut_temps[nearest]
 
     return temp_flat.reshape(h, w)
 
 
-# ═══════════════════════════════════════════════════════════════════
-# WIRE SEGMENTATION
-# ═══════════════════════════════════════════════════════════════════
-
-def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_img):
+def segment_wire_and_compute_delta_t(temp_map, color_img):
+    """
+    Segment ONLY the wire conductor pixels using HSV color space 
+    and extract true wire maximum and minimum temperatures.
+    """
     h, w = temp_map.shape
-    scale_range = t_max_scale - t_min_scale
-    mid_thresh = (t_max_scale + t_min_scale) / 2
+    hsv = cv2.cvtColor(color_img, cv2.COLOR_BGR2HSV)
 
-    roi_mask = np.zeros((h, w), dtype=np.uint8)
-    roi_mask[40:h - 40, 160:w - 80] = 1
+    H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
 
-    above_mid = (
-        (temp_map >= mid_thresh) & (roi_mask == 1)
-    ).astype(np.uint8)
+    # Exclude UI borders, timestamp, and scale bar
+    scene_mask = np.zeros((h, w), dtype=np.uint8)
+    scene_mask[int(h * 0.15):int(h * 0.85), int(w * 0.05):int(w * 0.85)] = 1
 
-    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
-        above_mid, connectivity=8
-    )
-
-    wire_mask = np.zeros((h, w), dtype=np.uint8)
-    for i in range(1, num_labels):
-        area = stats[i, cv2.CC_STAT_AREA]
-        bw   = stats[i, cv2.CC_STAT_WIDTH]
-        bh   = stats[i, cv2.CC_STAT_HEIGHT]
-        if area < 30:
-            continue
-        aspect   = max(bw, bh) / max(min(bw, bh), 1)
-        solidity = area / max(bw * bh, 1)
-        is_ui    = solidity > 0.50
-        is_blob  = area > 1500 and solidity > 0.45 and aspect < 3.0
-        is_wire  = (aspect >= 3.0 or solidity < 0.35) and area > 30
-        if is_wire and not is_ui and not is_blob:
-            wire_mask[labels == i] = 1
+    # Isolate wire pixels by filtering out cold dark background (purple/black sky)
+    wire_hue_mask = ((H >= 0) & (H <= 45)) | (H >= 160)
+    wire_val_mask = V > 110
+    
+    wire_candidate = wire_hue_mask & wire_val_mask & (scene_mask == 1)
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_OPEN,  kernel)
-    wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_CLOSE, kernel)
+    cleaned_mask = cv2.morphologyEx(wire_candidate.astype(np.uint8), cv2.MORPH_OPEN, kernel)
 
-    if wire_mask.sum() == 0:
-        return {
-            "wire_t_max": None,
-            "wire_t_min": None,
-            "delta_t"   : None,
-            "alert"     : "No wire detected",
-            "wire_mask" : wire_mask
-        }
+    wire_temps = temp_map[cleaned_mask == 1]
+    wire_temps = wire_temps[np.isfinite(wire_temps)]
 
-    wire_temps = temp_map[wire_mask == 1]
-    wire_t_max = float(np.percentile(wire_temps, 99))
-    wire_t_min = float(np.percentile(wire_temps, 1))
-    delta_t    = wire_t_max - wire_t_min
+    if wire_temps.size == 0:
+        return 0.0, 0.0, 0.0, "No Wire Detected", cleaned_mask
 
-    #threshold 
+    wire_t_max = float(np.percentile(wire_temps, 99.0))
+    wire_t_min = float(np.percentile(wire_temps, 10.0))
+
+    if wire_t_max < wire_t_min:
+        wire_t_max, wire_t_min = wire_t_min, wire_t_max
+
+    delta_t = wire_t_max - wire_t_min
+
     if delta_t > 20:
         alert = "CRITICAL - Attend within 24 hrs"
     elif delta_t > 10:
@@ -197,70 +147,44 @@ def segment_wire_and_compute_delta_t(temp_map, t_max_scale, t_min_scale, color_i
     else:
         alert = "NORMAL"
 
-    return {
-        "wire_t_max": wire_t_max,
-        "wire_t_min": wire_t_min,
-        "delta_t"   : delta_t,
-        "alert"     : alert,
-        "wire_mask" : wire_mask
-    }
+    return wire_t_max, wire_t_min, delta_t, alert, cleaned_mask
+
 
 # ═══════════════════════════════════════════════════════════════════
 # STATION LOOKUP
 # ═══════════════════════════════════════════════════════════════════
 
-# def get_station_from_filename(image_filename, excel_path="station_log.xlsx"):
 def get_station_from_filename(image_filename, excel_path=None):
+    """Match timestamp in image filename to nearest OHE mast/station in reference sheet."""
     try:
         basename = os.path.splitext(os.path.basename(image_filename))[0]
-        parts    = basename.split("-")
+        parts = basename.split("-")
         if len(parts) < 2:
             return None
         time_str = parts[1]
         img_time = datetime.strptime(time_str, "%H%M%S").time()
 
-        # ── Read Excel with its own header ────────────────────
-        # df = pd.read_excel(excel_path)
-
         SHEET_ID = "13W4XDKVK384EfZ5rxtccApLsMkca_Jz22qzz-uyrHf8"
         url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
         df = pd.read_csv(url)
 
-        
         def find_col(df, keywords):
-        
             for col in df.columns:
                 col_lower = str(col).lower()
                 if any(kw in col_lower for kw in keywords):
                     return col
             return None
-            
-        ohe_col = find_col(df, ["ohe", "mast"])
-        if ohe_col:
-            df[ohe_col] = df[ohe_col].astype(str)
-
 
         col_section  = find_col(df, ["section", "station", "name"])
         col_ohe      = find_col(df, ["ohe", "mast"])
         col_datetime = find_col(df, ["date", "time", "datetime"])
-        
-        if not col_datetime:
-            print("[station lookup] Could not find Date/Time column")
+
+        if not col_datetime or not col_section:
             return None
 
-        if not col_section:
-            print("[station lookup] Could not find Section column")
-            return None
-
-        # ── Parse dates ───────────────────────────────────────
         def parse_dt(val):
             s = str(val).strip().replace(" UTC", "")
-            for fmt in [
-                "%Y-%m-%d %H:%M:%S",
-                "%d/%m/%Y %H:%M:%S",
-                "%m/%d/%Y %H:%M:%S",
-                "%Y-%m-%d",
-            ]:
+            for fmt in ["%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%m/%d/%Y %H:%M:%S", "%Y-%m-%d"]:
                 try:
                     return datetime.strptime(s, fmt)
                 except Exception:
@@ -269,44 +193,29 @@ def get_station_from_filename(image_filename, excel_path=None):
 
         df["parsed_dt"] = df[col_datetime].apply(parse_dt)
         df = df.dropna(subset=["parsed_dt"])
-        
+
         if df.empty:
-            print("[station lookup] No rows after date parsing")
             return None
 
-        # ── Match by time only ────────────────────────────────
         def to_secs(t):
             return t.hour * 3600 + t.minute * 60 + t.second
 
-        img_secs        = to_secs(img_time)
+        img_secs = to_secs(img_time)
         df["diff_secs"] = df["parsed_dt"].apply(
             lambda dt: abs(to_secs(dt.time()) - img_secs)
         )
 
         nearest = df.loc[df["diff_secs"].idxmin()]
-  
+
         if nearest["diff_secs"] <= 300:
             ohe_raw = nearest[col_ohe] if col_ohe else "N/A"
-    
-                # Excel reads "12/1" as a date — convert back to d/m format
-            if hasattr(ohe_raw, 'strftime'):
-                ohe_str = f"{ohe_raw.day}/{ohe_raw.month}"
-            elif "00:00:00" in str(ohe_raw):
-                    try:
-                        dt = datetime.strptime(
-                            str(ohe_raw).strip(), "%Y-%m-%d %H:%M:%S"
-                        )
-                        ohe_str = f"{dt.day}/{dt.month}"
-                    except Exception:
-                        ohe_str = str(ohe_raw).strip()
-            else:
-                ohe_str = str(ohe_raw).strip().replace(".0", "")
-    
+            ohe_str = str(ohe_raw).strip().replace(".0", "")
+
             return {
-                    "section"      : str(nearest[col_section]).strip(),
-                    "ohe_mast"     : ohe_str,
-                    "matched_time" : nearest["parsed_dt"].strftime("%H:%M:%S"),
-                    "diff_seconds" : int(nearest["diff_secs"])
+                "section"      : str(nearest[col_section]).strip(),
+                "ohe_mast"     : ohe_str,
+                "matched_time" : nearest["parsed_dt"].strftime("%H:%M:%S"),
+                "diff_seconds" : int(nearest["diff_secs"])
             }
     except Exception as e:
         print(f"[station lookup error] {e}")
@@ -317,107 +226,32 @@ def get_station_from_filename(image_filename, excel_path=None):
 # MAIN PIPELINE
 # ═══════════════════════════════════════════════════════════════════
 
-def process_image(image_path, selected_roi=None):
-    
+def process_image(image_path):
     color_img = cv2.imread(image_path)
     if color_img is None:
         raise ValueError(f"Cannot load image: {image_path}")
 
-    h, w  = color_img.shape[:2]
+    h, w = color_img.shape[:2]
 
-    # ── Scale strip (rightmost ~4% of width) ─────────────────────
-    scale = color_img[:, int(w * 0.94):int(w * 0.98)]
-    sh, sw = scale.shape[:2]
+    # Extract scale limits (Top/Bottom)
+    t_max, t_min = parse_scale_bounds(color_img)
 
-    top    = scale[int(sh * 0.13):int(sh * 0.23), :]
-    bottom = scale[int(sh * 0.78):int(sh * 0.88), :]
-
-    # ── OCR temperatures ─────────────────────────────────────────
-    t_max_abs = crop_to_temp(top)
-    t_min_abs = crop_to_temp(bottom)
-
-    top_is_negative = has_minus_sign(top)
-    bot_is_negative = has_minus_sign(bottom)
-
-    t_max = -t_max_abs if (top_is_negative and t_max_abs) else t_max_abs
-    t_min = -t_min_abs if (bot_is_negative and t_min_abs) else t_min_abs
-
-    # ── Sanity check: top must be hotter than bottom ──────────────
-    if t_max is not None and t_min is not None and t_max < t_min:
-        if top_is_negative and not bot_is_negative:
-            t_max = t_max_abs
-        elif bot_is_negative and not top_is_negative:
-            t_min = t_min_abs
-        else:
-            t_max = max(t_max_abs or 0, t_min_abs or 0)
-            t_min = min(t_max_abs or 0, t_min_abs or 0)
-
-    # ── Temperature map ───────────────────────────────────────────
+    # Build temperature map
+    scale = color_img[:, int(w * 0.90):int(w * 0.98)]
     temp_map = map_pixels_to_temperature(color_img, scale, t_max, t_min)
 
-    # ── Selected Junction ROI ───────────────────────────────────────
-    # ── Apply selected ROI ────────────────────────────────────────
-    x1, y1, x2, y2 = selected_roi
-
-    # Crop both the temp map and color image to the ROI
-    roi_temp  = temp_map[y1:y2, x1:x2]
-    roi_color = color_img[y1:y2, x1:x2]
-
-    if roi_temp.size == 0:
-        raise ValueError("No valid temperature data in selected region.")
-
-    scale_range = t_max - t_min
-    mid_thresh  = t_min + scale_range * 0.50  # only keep warm pixels
-
-    # ── Keep only wire pixels (above 50% of scale) ────────────────
-    wire_mask = (roi_temp >= mid_thresh).astype(np.uint8)
-
-    # ── Morphological cleanup ─────────────────────────────────────
-    kernel    = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_OPEN,  kernel)
-    wire_mask = cv2.morphologyEx(wire_mask, cv2.MORPH_CLOSE, kernel)
-
-    wire_pixels = roi_temp[wire_mask == 1]
-
-    if len(wire_pixels) == 0:
-        # Fallback: use all ROI pixels above 30% threshold
-        wire_pixels = roi_temp[roi_temp >= t_min + scale_range * 0.30]
-
-    if len(wire_pixels) == 0:
-        raise ValueError("No wire pixels found in selected region. "
-                         "Try selecting a larger area around the junction.")
-
-    # Clamp to scale range
-    wire_pixels = np.clip(wire_pixels, t_min, t_max)
-
-    max_temp = float(np.percentile(wire_pixels, 99))
-    min_temp = float(np.percentile(wire_pixels, 5))
-    delta_t  = max_temp - min_temp
-    
-    # ── Fault classification ────────────────────────────────────
-    if delta_t > 20:
-        status = "CRITICAL"
-        attend_in = "To be attended within 24 hrs"
-    elif delta_t > 10:
-        status = "WARNING"
-        attend_in = "To be attended within 10 days"
-    elif delta_t > 5:
-        status = "MONITOR"
-        attend_in = "To be attended within 1 month"
-    else:
-        status = "NORMAL"
-        attend_in = "No action required"
+    # Segment wire and extract temperatures safely
+    wire_t_max, wire_t_min, delta_t, alert, wire_mask = segment_wire_and_compute_delta_t(
+        temp_map, color_img
+    )
 
     return {
         "scale_t_max": t_max,
         "scale_t_min": t_min,
-    
-        "max_temp": max_temp,
-        "min_temp": min_temp,
-    
-        "delta": delta_t,
-        "status": status,
-        "attend_in": attend_in,
-    
-        "temp_map": temp_map
+        "max_temp": round(wire_t_max, 1),
+        "min_temp": round(wire_t_min, 1),
+        "delta": round(delta_t, 1),
+        "status": alert,
+        "temp_map": temp_map,
+        "wire_mask": wire_mask
     }
